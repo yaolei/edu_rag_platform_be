@@ -1,0 +1,43 @@
+# Ignore macOS specific files
+.DS_Store
+
+# Ignore Python compiled files
+*.pyc
+
+# Ignore Python cache directories
+__pycache__/
+
+# Ignore environment files
+.env
+
+# Ignore virtual environment directories
+venv/
+env/
+
+# Ignore Conda environment files
+conda.yaml
+environment.yml
+
+# Ignore log files
+*.log
+
+# Ignore database files
+*.db
+*.sqlite
+
+# Ignore temporary files
+*.tmp
+*.temp
+
+# Ignore configuration files
+config.py
+
+# Ignore specific directories
+chroma_langchain_db/
+gateway/.DS_Store
+service_rag/app/config/__pycache__/
+service_rag/app/config/lifespan.py
+service_rag/app/document_operation/.DS_Store
+
+# Ignore specific files
+#requirements.txt
