@@ -1,6 +1,7 @@
 import json
 
 from sqlalchemy.orm import Session
+from service_rag.app.llm_model.contect_llm import connect_baidu_llm
 from service_rag.app.schemas.item import KnowledgeItemCreate, KnowledgeItems
 from service_rag.app.repositories import item as repo
 from service_rag.app.run_rag import RagService
@@ -8,23 +9,20 @@ from service_rag.app.run_rag import RagService
 
 async def create_knowledge_item(db:Session, obj, file):
     try:
-
         rag = await RagService.create(upload_file=file, embedding_type="store")
-        store_ids = rag.run_rag_engine()
-        print(f"✅ {store_ids} is store successfully")
-
-        req_data = KnowledgeItemCreate(
-            knowledgeName=obj['knowledgeName'],
-            activate=obj['activate'],
-            corpus_id=json.dumps(['123123', '123123123']),
-        )
-        res = repo.create_knowledge_item(db, req_data)
-
-        if res:
-            return {
-                "status": 200,
-                "message": "success",
-            }
+        store_ids = await rag.run_rag_engine()
+        if len(store_ids) > 0:
+            req_data = KnowledgeItemCreate(
+                knowledgeName=obj['knowledgeName'],
+                activate=obj['activate'],
+                corpus_id=json.dumps(store_ids),
+            )
+            res = repo.create_knowledge_item(db, req_data)
+            if res:
+                return {
+                    "status": 200,
+                    "message": "success",
+                }
 
     except Exception as e:
         return {
@@ -36,3 +34,36 @@ async def get_knowledge_items(db:Session):
 
 async def delete_knowledge_item(db:Session):
     pass
+
+def chat_with_none_knowledge(body):
+    res =  connect_baidu_llm(question=body.questions)
+    return {'status': 200, 'content': res}
+
+async def chat_with_knowledge_infor(questions):
+    rag = await RagService.create(embedding_type="questions", question=questions)
+    rag_message = await rag.run_rag_engine()
+    return {'status': 200, 'content': rag_message}
+
+
+async def delete_knowledge_item_by_ids(ids, db:Session):
+    try:
+        rag = await RagService.create()
+        del_doc = rag.del_knowledge_item(ids)
+
+        if del_doc:
+            res = repo.delete_knowledge_item(db, ids.id)
+            if res:
+                return {
+                    "status": 200,
+                    "message": f"Deleted knowledge {del_doc} success",
+                }
+        else:
+            return {
+                "status": 404,
+                "message": "no knowledge item found",
+            }
+    except Exception as e:
+        return {
+            "status": 500,
+            "message": str(e),
+        }

@@ -2,6 +2,8 @@ import os
 from uuid import uuid4
 from chromadb.config import Settings
 from langchain_chroma import Chroma
+from numpy.distutils.from_template import list_re
+
 
 class VectorStore:
     def __init__(self, embedding_function, collection_name='example_collection',
@@ -34,45 +36,45 @@ class VectorStore:
             print(str(e))
 
     def add_document_to_vector(self, document):
-        uuid = [str(uuid4()) for _ in range(len(document))]
+        try:
+            uuid = [str(uuid4()) for _ in range(len(document))]
+            self.vectors.add_documents(documents=document, ids=uuid)
 
-        self.vectors.add_documents(documents=document, ids=uuid)
+        except Exception as e:
+            print(str(e))
+            raise e
         print(f"✅ successfully added {len(document)} documents to vector store")
         return uuid
 
     def query_by_question_vector(self, question_vector):
-        cross_page_contents = []
         # embedding_query = self.embedding_function.embed_query(question_vector)
+        print(f"* 🙋 Question is {question_vector}")
+        print(f"* 🚀 start the first similarity search by 10 items: ")
         result = self.vectors.similarity_search(question_vector, k=20)
 
         if len(result) == 0:
             print(f"* 📊 no data from the vector store")
             return False
 
-        print(f"* question is {question_vector}")
-        print(f"* 🚀 start the first similarity search by 10 items: ")
-
-        for doc in result[:10]:
-            print(f"🧵 similarity result for {doc.page_content} [{doc.metadata}]")
-            cross_page_contents.append(doc.page_content)
-
         print(f"🚀 start the second similarity search by 10 items... ")
         final_doc = self.embedding_function.rerank_with_encoder(question_vector, result)
+        threshold = 7.5
+        filtered = [doc for doc in final_doc if doc["score"] >= threshold]
+        # for rank in final_doc[:10]:
+        #     print(f"-分数: ({rank['score']:.4f}): {rank['text'][:50]}, current score id is : {rank['corpus_id']}")
 
-        print(f"\🏆 final similarity result for {final_doc.page_content} [{final_doc.metadata}]")
-
-        for rank in final_doc.ranks[:10]:
-            print(f"-分数: ({rank['score']:.4f}): {rank['text'][:50]}, current score id is : {rank['corpus_id']}")
-        return final_doc
+        return filtered[:10]
 
 
     def delete_document(self, ids):
         self.vectors.delete(ids=ids)
         res = self.query_single_document(ids)
-        if not res:
+        if not res or len(res) == 0:
             print(f"✅id {ids} been deleted")
+            return True
         else:
             print(f"✅id {ids} not been deleted")
+            return False
 
     def list_documents_items(self):
         try:

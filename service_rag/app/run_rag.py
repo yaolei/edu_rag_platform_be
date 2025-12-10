@@ -9,7 +9,7 @@ from langchain_core.documents import Document
 from service_rag.app.document_operation.document_loader import DocumentLoader
 from service_rag.app.text_splitter.text_split import TextSplitter
 from service_rag.app.vector.vector_store import VectorStore
-from service_rag.app.llm_model.contect_llm import ConnectLLm
+from service_rag.app.llm_model.contect_llm import connect_baidu_llm
 from service_rag.app.text_splitter.advanced_text_cleaner import AdvancedTextCleaner
 from pathlib import Path
 
@@ -51,34 +51,53 @@ class RagService:
                 document_loader = DocumentLoader(upload_file)
                 self.target_file = await document_loader.load()
             except Exception as e:
-                print(f"❌ embedding module error: {e}")
+                print(f"❌ embedding module error: {str(e)}")
                 raise e
 
 
     def store_document_to_vector(self, chunks):
         try:
+            print(f"🚀 共有{len(chunks)} 进行保存")
             ids = self.vector.add_document_to_vector(chunks)
             print(f" stored {self.file_name_without_extension} documents successfully")
             return ids
         except Exception as e:
-                print(f" stored {self.file_name_without_extension} documents failed: {e}")
+                print(f" stored {self.file_name_without_extension} documents failed: {str(e)}")
+                raise e
 
+    def del_knowledge_item(self, ids):
+        corpus_ids = self.collation_ids(ids)
+
+        result = []
+        try:
+            for corpus_id in corpus_ids:
+                res = self.vector.delete_document(corpus_id)
+                result.append(res)
+
+        except Exception as e:
+            print(f"删除失败向量数据库数据: {str(e)}")
+            raise e
+
+        if None in result:
+            return None
+        else:
+            return True
 
     def clear_all_documents(self):
         self.vector.clear_collection()
 
     def question_query_from_vector(self):
-
         document = self.vector.query_by_question_vector(self.question)
         return document
 
-    def get_chunk_doc(self, target_file, clear_chunks=True):
+    def get_chunk_doc(self, target_file, clear_chunks=False):
         try:
             print(f"🚀 start split {self.file_name_without_extension}")
             splitter_chunks = TextSplitter().split_document(target_file)
 
             if clear_chunks:
                 chunks = self.clear_data(splitter_chunks)
+                print(f"🚀 🚀 🚀  {chunks}")
             else:
                 chunks = splitter_chunks
             return chunks
@@ -88,27 +107,30 @@ class RagService:
 
 
     def get_context_from_docs(self, documents):
-        formatter_prompt = self.prompt.get_prompt(
-            context=documents,
+        if not documents:
+            context_str = "(上下文知识库未检索到相关内容)"
+        else:
+            context_str = "\n".join(d["text"] for d in documents)
+        formatter_prompt = self.prompt.format(
+            context=context_str,
             question=self.question,
         )
-        return ConnectLLm().connect_baidu_llm(formatter_prompt)
 
-
+        return connect_baidu_llm(formatter_prompt)
 
     async def run_rag_engine(self):
         print(f"🚀 RAG engine start and current embedding type: 🌟{self.embedding_type}🌟")
-
-        if self.embedding_type == 'question':
+        if self.embedding_type == 'questions':
             print(f" Flow the question process....")
             res_doc = self.question_query_from_vector()
-
-            if not res_doc:
-                pass
-            else:
+            try:
                 print(f"🚀 start query answer by LLM...")
                 return self.get_context_from_docs(res_doc)
-        elif self.embedding_type == 'document':
+            except Exception as e:
+                print(f"❌🔥 {str(e)}")
+                raise e
+
+        else:
             print(f" Query all  the documents from vector process....")
             print(f" load file {self.file_name_without_extension}")
 
@@ -116,6 +138,7 @@ class RagService:
 
             stored_ids = self.store_document_to_vector(chunks)
             return stored_ids
+
 
     def clear_data(self, chunks):
         all_rag_chunks = []

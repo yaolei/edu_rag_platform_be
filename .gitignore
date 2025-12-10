@@ -41,3 +41,5 @@ service_rag/app/document_operation/.DS_Store
 
 # Ignore specific files
 #requirements.txt
+
+.idea/

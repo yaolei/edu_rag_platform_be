@@ -41,25 +41,24 @@ class AdvancedTextCleaner:
         if len(line) < 2:
             return False
 
-
         has_chinese = bool(re.search(r'[\u4e00-\u9fff]+', line))
-        has_english = bool(re.search(r'[a-zA-Z]+', line))
+        has_english = bool(re.search(r'\b[a-zA-Z]{2,}\b+', line))
 
         garbage_ratio = len(re.findall(r'[^a-zA-Z0-9\u4e00-\u9fff\s\.,;:()|\-+]+', line)) / len(line)
         return (has_chinese or has_english) and garbage_ratio <= 0.3
 
-    def clean_documents(self, documents: List[Document]):
+    def clean_documents(self, documents: List[Document]) -> List[Document]:
         cleaned_docs = []
 
         for i, doc in enumerate(documents):
             cleaned_content = self.clean_text(doc.page_content)
 
-            if len(cleaned_content.strip()) > 0:
+            if len(cleaned_content.strip()) > 10:
                 cleaned_doc = Document(
                     page_content=cleaned_content,
                 )
                 cleaned_docs.append(cleaned_doc)
                 print(f"✅ clean {i}: {cleaned_content[:100]}...")
             else:
-                print(f"❌ 移除垃圾块 {i}: {cleaned_content[:100]}...")
+                print(f"❌ 移除垃圾块 {i}: {doc.page_content[:100]}...")
         return cleaned_docs

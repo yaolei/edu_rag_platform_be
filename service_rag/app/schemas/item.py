@@ -12,7 +12,7 @@ class ResponseORM(BaseModel):
 class KnowledgeItemCreate(BaseModel):
     knowledgeName:str = Field(..., max_length=94)
     activate:bool = Field(...)
-    corpus_id:str = Field(..., max_length=700)
+    corpus_id:str
 
 class DelKnowledgeItem(BaseModel):
     corpus_id:List[str]
@@ -26,3 +26,7 @@ class KnowledgeItems(BaseModel):
     created_at: datetime
 
     model_config = {"from_attributes": True}
+
+class DeleteKnowledgeItem(BaseModel):
+    corpus_ids:List[str]
+    id:int

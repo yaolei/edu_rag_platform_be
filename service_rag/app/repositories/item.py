@@ -19,3 +19,10 @@ def get_knowledge_item(db:Session):
             .where(KnowledgeItemORM.deleted != True)
             .all()
            )
+def delete_knowledge_item(db:Session, ids):
+    db_item = db.query(KnowledgeItemORM).filter(KnowledgeItemORM.id == ids).first()
+
+    if db_item:
+        db.delete(db_item)
+        db.commit()
+    return db_item

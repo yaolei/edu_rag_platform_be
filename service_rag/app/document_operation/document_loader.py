@@ -78,7 +78,7 @@ class DocumentLoader:
             if not self.urls:
                 raise ValueError("web 类型必须提供 urls 参数")
             headers = {"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)" 
-                                     "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36"}
+                                     "AppleWebKit/537.36 (HTML, like Gecko) Chrome/123.0.0.0 Safari/537.36"}
             # return WebBaseLoader(self.urls)   # 支持异步
             return AsyncHtmlLoader(self.urls, header_template=headers)
 
@@ -88,28 +88,30 @@ class DocumentLoader:
             await self._create_temp_file_if_needed()
             if not self.temp_file_path or not os.path.exists(self.temp_file_path):
                 raise ValueError(f"临时文件 {self.filename} 创建失败")
+            else:
+                print(f"✅ 临时文件 {self.filename} - {self.temp_file_path} 创建成功")
 
         # 3.  返回对应 Loader
-        kwargs = self.kwargs
+
         if self.document_type == "txt":
-            encoding = kwargs.get("encoding", "utf-8")
+            encoding = self.kwargs.get("encoding", "utf-8")
             # 文本可直接从内存读，这里仍用临时文件示例
             return TextLoader(self.temp_file_path, encoding=encoding)
 
-        if self.document_type == "csv":
+        elif self.document_type == "csv":
             return CSVLoader(
                 self.temp_file_path,
-                csv_args=kwargs.get("csv_args", {}),
-                encoding=kwargs.get("encoding", "utf-8")
+                csv_args=self.kwargs.get("csv_args", {}),
+                encoding=self.kwargs.get("encoding", "utf-8")
             )
 
-        if self.document_type == "pdf":
-            pdf_loader_type = kwargs.get("pdf_loader_type", "pypdf")
+        elif self.document_type == "pdf":
+            pdf_loader_type = self.kwargs.get("pdf_loader_type", "pypdf")
             if pdf_loader_type == "unstructured":
                 return UnstructuredPDFLoader(self.temp_file_path)
             return PyPDFLoader(self.temp_file_path)
 
-        if self.document_type == "image":
+        elif self.document_type == "image":
             return UnstructuredImageLoader(self.temp_file_path)
 
         raise ValueError(f"unsupported document type: {self.document_type}")
