@@ -1,17 +1,18 @@
+# start_dev.py
 import subprocess
 import signal
 import sys
 
 def start_pro(name, port):
     cmd = [
-        sys.executable, "-m", "gunicorn",
+        sys.executable, "-m", "uvicorn",
         f"{name}.app.main:app",
-        "--workers", "4",
-        "--bind", f"0.0.0.0:{port}"
+        "--reload", "--host", "0.0.0.0", "--port", str(port)
     ]
     return subprocess.Popen(cmd)
 
 def stop(*_):
+    # 只发终止信号，不 wait
     for p in procs:
         p.terminate()
     sys.exit(0)
