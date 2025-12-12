@@ -1,5 +1,4 @@
-from os import write
-
+from os import environ
 from fastapi import FastAPI
 from starlette.middleware.cors import CORSMiddleware
 from starlette.responses import Response
@@ -22,6 +21,20 @@ timeout = httpx.Timeout(
     pool=10.0,
     write=10.0
 )
+
+
+# ===== 生产环境覆盖 =====
+# ORIGINS 用逗号分隔，例如 "http://106.12.58.7,https://example.com"
+origins_str = environ.get("ORIGINS")
+if origins_str:
+    settings.origins = [o.strip() for o in origins_str.split(",") if o.strip()]
+
+# SERVICE_*  例如 SERVICE_edu_rag=http://edu-rag:8001
+for k, v in environ.items():
+    if k.startswith("SERVICE_"):
+        svc_key = k[8:].lower()   # 去掉 SERVICE_ 并小写
+        settings.SERVICE[svc_key] = v
+# ========================
 
 @app.get('/')
 def hello_world():

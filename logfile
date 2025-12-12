@@ -14,3 +14,4 @@
 2025-12-03 14:23:04.479 CST [85645] HINT:  No operator matches the given name and argument types. You might need to add explicit type casts.
 2025-12-03 14:23:04.479 CST [85645] STATEMENT:  SELECT activate, deleted
 	FROM public.edu_knowledge_item where activate == True
+2025-12-11 10:21:17.309 CST [86757] FATAL:  database "accurate_edu" does not exist
