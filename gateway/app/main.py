@@ -5,6 +5,19 @@ from starlette.responses import Response
 from starlette.requests import Request
 import httpx
 from gateway.app.core.config import settings
+
+# ===== 生产环境覆盖 =====
+# ORIGINS 用逗号分隔，例如 "http://106.12.58.7,https://example.com"
+origins_str = environ.get("ORIGINS")
+if origins_str:
+    settings.origins = [o.strip() for o in origins_str.split(",") if o.strip()]
+
+# SERVICE_*  例如 SERVICE_edu_rag=http://edu-rag:8001
+for k, v in environ.items():
+    if k.startswith("SERVICE_"):
+        svc_key = k[8:].lower()   # 去掉 SERVICE_ 并小写
+        settings.SERVICE[svc_key] = v
+# ========================
 app = FastAPI(title='gateway', version='1.0.0')
 
 app.add_middleware(
@@ -23,18 +36,7 @@ timeout = httpx.Timeout(
 )
 
 
-# ===== 生产环境覆盖 =====
-# ORIGINS 用逗号分隔，例如 "http://106.12.58.7,https://example.com"
-origins_str = environ.get("ORIGINS")
-if origins_str:
-    settings.origins = [o.strip() for o in origins_str.split(",") if o.strip()]
 
-# SERVICE_*  例如 SERVICE_edu_rag=http://edu-rag:8001
-for k, v in environ.items():
-    if k.startswith("SERVICE_"):
-        svc_key = k[8:].lower()   # 去掉 SERVICE_ 并小写
-        settings.SERVICE[svc_key] = v
-# ========================
 
 @app.get('/')
 def hello_world():
