@@ -50,3 +50,4 @@ models/ms-marco-MiniLM-L6-v2/
 *.bin
 *.safetensors
 .idea/
+*.whl
