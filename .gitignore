@@ -43,6 +43,8 @@ service_rag/app/document_operation/.DS_Store
 #requirements.txt
 
 .idea/# 本地离线模型（不提交）
+models/
+*models
 models/multi-qa-mpnet-base-cos-v1/
 models/ms-marco-MiniLM-L6-v2/
 *.bin

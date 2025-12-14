@@ -2,20 +2,19 @@ import os
 from sentence_transformers import SentenceTransformer, CrossEncoder
 from typing import List, Optional
 
-model_path = os.path.abspath("./models/multi-qa-mpnet-base-cos-v1")
-
+BASE_MODEL_DIR = os.path.abspath("./models")
 class EmbeddingData:
     def __init__(self, embedding_type='store'):
-        self.model = SentenceTransformer(model_path, token=False)
+        self.model = SentenceTransformer(os.path.join(BASE_MODEL_DIR, "multi-qa-mpnet-base-cos-v1"), token=False)
         if embedding_type != 'store':
-            self.model = CrossEncoder("cross-encoder/ms-marco-MiniLM-L6-v2", token=False)
+            self.model = CrossEncoder(os.path.join(BASE_MODEL_DIR, "cross-encoder/ms-marco-MiniLM-L6-v2"), token=False)
 
     def embed_documents(self, text:List[str]) -> List[List[float]]:
         embeddings = self.model.encode(text, convert_to_tensor=False)
         return embeddings.tolist()
 
     def embed_query(self, question) -> List[float]:
-        embedding_model = SentenceTransformer(model_path, token=False)
+        embedding_model = SentenceTransformer(os.path.join(BASE_MODEL_DIR, "multi-qa-mpnet-base-cos-v1"), token=False)
         embeddings = embedding_model.encode([question], convert_to_tensor=False)
         return embeddings[0].tolist()
 
