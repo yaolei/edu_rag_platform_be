@@ -58,12 +58,12 @@ class VectorStore:
 
         print(f"🚀 start the second similarity search by 10 items... ")
         final_doc = self.embedding_function.rerank_with_encoder(question_vector, result)
-        threshold = 7.5
-        filtered = [doc for doc in final_doc if doc["score"] >= threshold]
+        # threshold = 7.5
+        # filtered = [doc for doc in final_doc if doc["score"] >= threshold]
         # for rank in final_doc[:10]:
         #     print(f"-分数: ({rank['score']:.4f}): {rank['text'][:50]}, current score id is : {rank['corpus_id']}")
 
-        return filtered[:10]
+        return final_doc[:10]
 
 
     def delete_document(self, ids):
