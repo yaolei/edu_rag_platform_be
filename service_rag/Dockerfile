@@ -2,7 +2,7 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-RUN --mount=type=bind,source=/root/wheels,target=/wheels \
+RUN --mount=type=bind,source=./wheels,target=/wheels \
     pip install --no-index --find-links /wheels torch==2.9.1+cpu
 
 COPY requirements.txt .
