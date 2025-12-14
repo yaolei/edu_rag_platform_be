@@ -51,3 +51,6 @@ models/ms-marco-MiniLM-L6-v2/
 *.safetensors
 .idea/
 *.whl
+wheels
+wheels/*
+.wheels
