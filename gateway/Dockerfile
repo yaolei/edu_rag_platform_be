@@ -2,10 +2,6 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-# 换国内源 + BuildKit 缓存
-RUN pip config set global.index-url https://mirrors.aliyun.com/pypi/simple && \
-    pip config set global.trusted-host mirrors.aliyun.com
-
 COPY requirements.txt .
 RUN --mount=type=cache,target=/root/.cache/pip \
     pip install -r requirements.txt
