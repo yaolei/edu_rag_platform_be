@@ -35,7 +35,6 @@ environment.yml
 chroma_langchain_db/
 gateway/.DS_Store
 service_rag/app/config/__pycache__/
-service_rag/app/config/lifespan.py
 service_rag/app/document_operation/.DS_Store
 
 # Ignore specific files
