@@ -3,7 +3,7 @@ FROM python:3.11-slim
 WORKDIR /app
 
 COPY wheels/ ./wheels/
-RUN pip install --no-index --find-links ./wheels torch==2.9.1+cpu
+RUN pip install --find-links ./wheels torch==2.9.1+cpu
 
 COPY requirements.txt .
 RUN --mount=type=cache,target=/root/.cache/pip \
