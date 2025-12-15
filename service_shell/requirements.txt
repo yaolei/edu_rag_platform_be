@@ -1,7 +1,7 @@
 --index-url https://mirrors.aliyun.com/pypi/simple
---extra-index-url https://download.pytorch.org/whl/cpu
+--extra-index-url https://mirrors.tuna.tsinghua.edu.cn/pytorch-wheels/cpu
 --trusted-host mirrors.aliyun.com
---trusted-host download.pytorch.org
+--trusted-host mirrors.tuna.tsinghua.edu.cn
 aiohappyeyeballs==2.6.1
 aiohttp==3.13.2
 aiosignal==1.4.0
