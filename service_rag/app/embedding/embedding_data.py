@@ -7,7 +7,7 @@ class EmbeddingData:
     def __init__(self, embedding_type='store'):
         self.model = SentenceTransformer(os.path.join(BASE_MODEL_DIR, "multi-qa-mpnet-base-cos-v1"), token=False)
         if embedding_type != 'store':
-            self.model = CrossEncoder(os.path.join(BASE_MODEL_DIR, "cross-encoder/ms-marco-MiniLM-L6-v2"), token=False)
+            self.model = CrossEncoder(os.path.join(BASE_MODEL_DIR, "ms-marco-MiniLM-L6-v2"), token=False)
 
     def embed_documents(self, text:List[str]) -> List[List[float]]:
         embeddings = self.model.encode(text, convert_to_tensor=False)

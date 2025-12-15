@@ -53,7 +53,7 @@ async def proxy(svc:str, path:str, request: Request):
                 method=request.method,
                 url=url,
                 headers=request.headers.raw,
-                content= await request.body,
+                content= await request.body(),
                 params=request.query_params,
                 timeout=timeout,
             )
