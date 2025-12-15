@@ -18,7 +18,7 @@ RUN --mount=type=cache,target=/root/.cache/pip \
     pip install -r requirements.txt
 
 
-COPY . /app/gateway/
+COPY . /app/service_rag/
 ENV PYTHONPATH=/app
 
 # 默认用 uvicorn，端口 8000
