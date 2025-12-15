@@ -30,7 +30,6 @@ environment.yml
 *.temp
 
 # Ignore configuration files
-config.py
 
 # Ignore specific directories
 chroma_langchain_db/

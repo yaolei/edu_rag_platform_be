@@ -2,7 +2,7 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-COPY wheels/ ./wheels/
+COPY service_rag/wheels/ ./wheels/
 RUN pip install \
     --index-url https://mirrors.aliyun.com/pypi/simple \
     --extra-index-url https://pypi.tuna.tsinghua.edu.cn/simple \
@@ -13,12 +13,13 @@ RUN pip install \
     --find-links ./wheels \
     torch==2.9.1+cpu
 
-COPY requirements.txt .
+COPY service_rag/requirements.txt .
 RUN --mount=type=cache,target=/root/.cache/pip \
     pip install -r requirements.txt
 
+COPY service_rag /app/service_rag
+COPY conect_databse /app/conect_databse
 
-COPY . /app/service_rag/
 ENV PYTHONPATH=/app
 
 # 默认用 uvicorn，端口 8000

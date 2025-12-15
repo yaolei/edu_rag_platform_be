@@ -6,7 +6,8 @@ COPY requirements.txt .
 RUN --mount=type=cache,target=/root/.cache/pip \
     pip install -r requirements.txt
 
-COPY . /app/gateway/
+COPY gateway /app/gateway
+
 ENV PYTHONPATH=/app
 
 # 默认用 uvicorn，端口 8000
