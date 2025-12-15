@@ -2,6 +2,7 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
+COPY models /app/models
 COPY service_rag/wheels/ ./wheels/
 RUN pip install \
     --index-url https://mirrors.aliyun.com/pypi/simple \
