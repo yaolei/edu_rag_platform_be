@@ -1,9 +1,8 @@
 from pydantic.v1 import BaseSettings
-
+from typing import List
 
 class Settings(BaseSettings):
-
-    origins = [
+    origins: List[str] = [
         "http://localhost:3000",
         "http://localhost:8000",
         "http://localhost:8080",
@@ -15,10 +14,16 @@ class Settings(BaseSettings):
     ]
 
     SERVICE = {
-        'gateway': f"http://localhost:8000",
-        'edu_rag': f"http://localhost:8001",
-        'edu_shell': f"http://localhost:8002",
-        'edu_admin': f"http://localhost:8003",
+        'gateway': "http://localhost:8000",
+        'edu_rag': "http://localhost:8001",
+        'edu_shell': "http://localhost:8002",
+        'edu_admin': "http://localhost:8003",
     }
+
+    class Config:
+        env_file = '.env.production'
+        env_file_encoding = 'utf-8'
+        case_sensitive = False
+        json_loads = lambda x: [i.strip() for i in x.split(',') if i.strip()]
 
 settings = Settings()
