@@ -9,4 +9,4 @@ RUN --mount=type=cache,target=/root/.cache/pip \
 COPY . .
 
 # 默认用 uvicorn，端口 8000
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
