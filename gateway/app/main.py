@@ -44,9 +44,11 @@ def hello_world():
 
 @app.api_route("/{svc}{path:path}", methods=['GET', 'POST', 'PUT', 'PATCH', 'DELETE'])
 async def proxy(svc:str, path:str, request: Request):
+    print(f"🚀👋🚀👋🚀👋[GW] entry: svc={svc}, path={path}🚀👋🚀👋🚀👋")
     if svc not in settings.SERVICE:
         return Response("Evan Service not found !", status_code=404)
     url = f"http://{settings.SERVICE[svc]}/{path}"
+    print(f"🏆🏆🏆🏆🏆[GW] forwarding to {url} 🏆🏆🏆🏆🏆🏆🏆🏆")
     try:
         async with httpx.AsyncClient(timeout=timeout) as client:
             response = await client.request(
@@ -61,11 +63,13 @@ async def proxy(svc:str, path:str, request: Request):
             return Response(content=response.content, status_code=response.status_code, headers=response.headers)
     except httpx.ConnectTimeout:
         return Response("Connection timed out !", status_code=404)
-    except httpx.ConnectError:
+    except httpx.ConnectError as e:
+        print(f"[GW] ❌❌❌❌❌ ConnectError: {str(e)} ❌❌❌")
         return Response("Connection error !", status_code=404)
     except httpx.ReadTimeout:
         return Response("Read Time Connection timed out !", status_code=404)
     except Exception as e:
+        print(f"[GW] ConnectError: {e}")
         print(f"gate way error : {str(e)}")
         return {
             "message": "Gateway error",
