@@ -1,0 +1,60 @@
+name: Backend Docker Build & Deploy
+
+on:
+  push:
+    branches: [main]
+
+env:
+  SSH_HOST: ${{ secrets.SSH_HOST }}
+  SSH_USER: ${{ secrets.SSH_USER }}
+  SSH_KEY: ${{ secrets.SSH_KEY }}
+  DOCKER_BUILD_NO_CACHE: ${{ vars.DOCKER_BUILD_NO_CACHE }}
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Detect dependency changes
+        id: deps
+        run: |
+          if git diff --name-only HEAD^ HEAD | grep -E '(package\.json|yarn\.lock|build\.docker-compose\.yml)'; then
+            echo "force_no_cache=true" >> $GITHUB_OUTPUT
+          else
+            echo "force_no_cache=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Set build cache flag
+        id: cache
+        run: |
+          if [ "${DOCKER_BUILD_NO_CACHE}" = "true" ]; then
+            echo "cache_flag=--no-cache" >> $GITHUB_OUTPUT
+          elif [ "${{ steps.deps.outputs.force_no_cache }}" = "true" ]; then
+            echo "cache_flag=--no-cache" >> $GITHUB_OUTPUT
+          else
+            echo "cache_flag=" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Pull & Build & Deploy on server
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ env.SSH_HOST }}
+          username: ${{ env.SSH_USER }}
+          key: ${{ env.SSH_KEY }}
+          script: |
+            set -e
+            echo "🔄 Pulling latest code..."
+            cd /root/www/edu_rag_platform_be
+            git fetch origin main
+            git reset --hard origin/main
+            echo "✅ Code updated to $(git rev-parse --short HEAD)"
+
+            echo "🐳 Building frontend image..."
+            cd /root/www/docker_relation_server/backend
+            docker compose -f docker-compose.prod.yml build ${{ steps.cache.outputs.cache_flag }}
+
+            echo "🚀 Deploying containers..."
+            docker compose -f docker-compose.prod.yml up -d --force-recreate
+            echo "✅ Deploy completed successfully!"

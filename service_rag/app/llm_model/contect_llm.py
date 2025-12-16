@@ -25,7 +25,7 @@ def get_access_token():
     return access_token
 
 def connect_baidu_llm(question:str, prompt:str=""):
-    print(f" 传过来的问题是😂😂 {question}")
+    print(f" 传过来的问题是😂😂 {question} 😂😂😂😂")
     url = setting.CHAT_URL_TEMPLATE.format(get_access_token())
     payload = {"messages": [{
         "role": "user",

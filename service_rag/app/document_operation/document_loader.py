@@ -129,18 +129,3 @@ class DocumentLoader:
     async def __aexit__(self, exc_type, exc_val, exc_tb):
         if self.temp_file_path and os.path.exists(self.temp_file_path):
             os.unlink(self.temp_file_path)
-
-# if __name__ == "__main__":
-#     async def main():
-#         loader = DocumentLoader(
-#             upload_file=None,
-#             document_type="web",
-#             urls=["https://tailwindcss.com/docs/installation/using-vite"]
-#             # urls=["https://fastapi.tiangolo.com", "https://github.com"]
-#         )
-#         # docs = await loader.load()
-#         # html_content = "\n".join(doc.page_content for doc in docs)
-#         # pathlib.Path("result.html").write_text(html_content, encoding="utf-8")
-#         # print(f"已生成 {pathlib.Path.cwd()}/result.html")
-#
-#     asyncio.run(main())
