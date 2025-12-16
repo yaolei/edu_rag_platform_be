@@ -24,7 +24,7 @@ class EmbeddingData:
 
         ranks = self.model.rank(query_str, passage_texts, return_documents=True)
 
-        print("Query:", question)
+        print("Query !:", question)
         # for rank in ranks:
         #     print(f"{rank['score']:.2f}\t{passage_texts[rank['corpus_id']]}")
 
