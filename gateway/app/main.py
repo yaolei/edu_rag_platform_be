@@ -57,6 +57,7 @@ async def proxy(svc:str, path:str, request: Request):
                 params=request.query_params,
                 timeout=timeout,
             )
+            print(f"🚀🔥🚀🔥🚀🔥[GW] target returned {response.status_code} 🚀🔥🚀🔥🚀🔥")
             return Response(content=response.content, status_code=response.status_code, headers=response.headers)
     except httpx.ConnectTimeout:
         return Response("Connection timed out !", status_code=404)
