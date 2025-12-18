@@ -9,7 +9,7 @@ from langchain_community.document_loaders import (
     TextLoader, CSVLoader, WebBaseLoader, PyPDFLoader,
     UnstructuredImageLoader, UnstructuredPDFLoader
 )
-
+import pytesseract
 
 class DocumentLoader:
     def __init__(self,
