@@ -418,7 +418,7 @@ numpy==2.3.5
     #   langchain-community
     #   numexpr
     #   onnxruntime
-    #   opencv-python
+    #   opencv-python-headless
     #   pandas
     #   scikit-learn
     #   scipy
@@ -433,7 +433,7 @@ onnxruntime==1.23.2
     # via
     #   -r requirements.in
     #   chromadb
-opencv-python==4.11.0.86
+opencv-python-headless==4.11.0.86
     # via -r requirements.in
 opentelemetry-api==1.38.0
     # via

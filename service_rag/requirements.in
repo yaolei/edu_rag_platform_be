@@ -168,6 +168,6 @@ zipp==3.23.0
 zstandard==0.25.0
 pytesseract
 pytesseract
-opencv-python
+opencv-python-headless
 PyMuPDF
 tabula-py
