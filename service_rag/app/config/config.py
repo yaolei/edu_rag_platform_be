@@ -1,7 +1,5 @@
 class Config:
-    AK = "z7Ftb94wYtzyjKBFjFfqAkmn"
-    SK = "VIschOTtaiSAaFHJh72FxdMXZGhDaJre"
-    TOKEN_URL = f"https://aip.baidubce.com/oauth/2.0/token?grant_type=client_credentials&client_id={AK}&client_secret={SK}"
-    CHAT_URL_TEMPLATE = "https://aip.baidubce.com/rpc/2.0/ai_custom/v1/wenxinworkshop/chat/ernie-speed-128k?access_token={}"
+    TOKEN_URL = f"KizrytjuiXK1wpmd7Z0YbNDQfK4Q18n5wGODR0GG"
+    CHAT_URL_TEMPLATE="https://api.cloudflare.com/client/v4/accounts/59861947ace4956d903803045f80b0fa/ai/v1/chat/completions"
 
 setting = Config()

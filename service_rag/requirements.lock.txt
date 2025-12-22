@@ -105,6 +105,7 @@ distro==1.9.0
     #   -r requirements.in
     #   anthropic
     #   posthog
+    #   tabula-py
 docstring-parser==0.17.0
     # via
     #   -r requirements.in
@@ -417,9 +418,12 @@ numpy==2.3.5
     #   langchain-community
     #   numexpr
     #   onnxruntime
+    #   opencv-python
+    #   pandas
     #   scikit-learn
     #   scipy
     #   shapely
+    #   tabula-py
     #   transformers
 oauthlib==3.3.1
     # via
@@ -429,6 +433,8 @@ onnxruntime==1.23.2
     # via
     #   -r requirements.in
     #   chromadb
+opencv-python==4.11.0.86
+    # via -r requirements.in
 opentelemetry-api==1.38.0
     # via
     #   -r requirements.in
@@ -485,6 +491,8 @@ packaging==25.0
     #   onnxruntime
     #   pytesseract
     #   transformers
+pandas==2.3.3
+    # via tabula-py
 pillow==12.0.0
     # via
     #   -r requirements.in
@@ -564,6 +572,8 @@ pygments==2.19.2
     # via
     #   -r requirements.in
     #   rich
+pymupdf==1.26.7
+    # via -r requirements.in
 pypdf==6.4.0
     # via -r requirements.in
 pypika==0.48.9
@@ -581,6 +591,7 @@ python-dateutil==2.9.0.post0
     #   -r requirements.in
     #   google-cloud-bigquery
     #   kubernetes
+    #   pandas
     #   posthog
 python-dotenv==1.2.1
     # via
@@ -589,6 +600,8 @@ python-dotenv==1.2.1
     #   uvicorn
 python-multipart==0.0.20
     # via -r requirements.in
+pytz==2025.2
+    # via pandas
 pyyaml==6.0.3
     # via
     #   -r requirements.in
@@ -700,6 +713,8 @@ sympy==1.14.0
     #   -r requirements.in
     #   onnxruntime
     #   torch
+tabula-py==2.10.0
+    # via -r requirements.in
 tenacity==9.1.2
     # via
     #   -r requirements.in
@@ -774,6 +789,8 @@ typing-inspection==0.4.2
     #   -r requirements.in
     #   pydantic
     #   pydantic-settings
+tzdata==2025.3
+    # via pandas
 urllib3==2.3.0
     # via
     #   -r requirements.in

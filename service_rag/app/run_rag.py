@@ -50,6 +50,10 @@ class RagService:
             try:
                 document_loader = DocumentLoader(upload_file)
                 self.target_file = await document_loader.load()
+                if self.target_file and self.target_file[0].page_content == '':
+                    self.target_file = None
+                else:
+                    pass
             except Exception as e:
                 print(f"❌ embedding module error: {str(e)}")
                 raise e
@@ -119,7 +123,9 @@ class RagService:
         return connect_baidu_llm(formatter_prompt)
 
     async def run_rag_engine(self):
-        print(f"🚀 RAG engine start and current embedding type: 🌟{self.embedding_type}🌟")
+        print(f"🚀 开始判断文件上传的文件是否需要进行知识库存储")
+        # if self.target_file:
+        print(f"🚀 RAG engine start and current embedding")
         if self.embedding_type == 'questions':
             print(f" Flow the question process....")
             res_doc = self.question_query_from_vector()
@@ -133,11 +139,18 @@ class RagService:
         else:
             print(f" Query all  the documents from vector process....")
             print(f" load file {self.file_name_without_extension}")
-
             chunks = self.get_chunk_doc(self.target_file)
 
             stored_ids = self.store_document_to_vector(chunks)
             return stored_ids
+        # else:
+            print(f"✅ 上传的文件是个纯图片，不需要切片存储，直接进入模型阶段")
+            # dir_to_llm_prompt = self.prompt.format(
+            #     context=context_str,
+            #     question=self.question,
+            # )
+            #
+            # connect_baidu_llm(dir_to_llm_prompt)
 
 
     def clear_data(self, chunks):
