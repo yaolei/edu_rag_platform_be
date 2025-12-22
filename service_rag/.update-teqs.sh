@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-# 1. 把新包写进 requirements.in（你手动做或脚本做都行）
+# 1. 把新包写进 requirements.in
 #    例：echo "newpkg==1.2.3" >> requirements.in
 
 # 2. 重新生成锁定文件

@@ -25,6 +25,7 @@ class RagService:
         self.embeddings = None
         self.vector = None
         self.question = None
+        self.file_type = None
 
     @classmethod
     async def create(cls, upload_file: UploadFile=None, embedding_type='questions', question:Optional[str] = None, **kwargs):
@@ -53,6 +54,8 @@ class RagService:
                 if self.target_file and self.target_file[0].page_content == '':
                     self.target_file = None
                 else:
+                    self.file_type = document_loader._detect_document_type()
+                    return False
                     pass
             except Exception as e:
                 print(f"❌ embedding module error: {str(e)}")
@@ -137,12 +140,16 @@ class RagService:
                 raise e
 
         else:
-            print(f" Query all  the documents from vector process....")
-            print(f" load file {self.file_name_without_extension}")
-            chunks = self.get_chunk_doc(self.target_file)
 
-            stored_ids = self.store_document_to_vector(chunks)
-            return stored_ids
+            if self.file_type !='image':
+                print(f" ✅ 开始进行保存知识库操作")
+                print(f" 上传的文件名称: {self.file_name_without_extension}")
+                chunks = self.get_chunk_doc(self.target_file)
+                stored_ids = self.store_document_to_vector(chunks)
+                return stored_ids
+            else:
+                print(f"不能上传图片")
+                pass
         # else:
             print(f"✅ 上传的文件是个纯图片，不需要切片存储，直接进入模型阶段")
             # dir_to_llm_prompt = self.prompt.format(

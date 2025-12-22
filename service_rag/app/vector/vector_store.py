@@ -3,6 +3,7 @@ from uuid import uuid4
 from chromadb.config import Settings
 from langchain_chroma import Chroma
 from numpy.distutils.from_template import list_re
+from langchain_community.vectorstores.utils import filter_complex_metadata
 
 
 class VectorStore:
@@ -22,7 +23,7 @@ class VectorStore:
                 allow_reset=True,
             )
         )
-
+    # clear all the data
     def clear_collection(self):
         try:
             collections = self.vectors._collection
@@ -34,11 +35,13 @@ class VectorStore:
                 print(f"collections is empty: {len(all_ids)}")
         except Exception as e:
             print(str(e))
+        return True
 
     def add_document_to_vector(self, document):
         try:
             uuid = [str(uuid4()) for _ in range(len(document))]
-            self.vectors.add_documents(documents=document, ids=uuid)
+            docs = filter_complex_metadata(document)
+            self.vectors.add_documents(documents=docs, ids=uuid)
 
         except Exception as e:
             print(str(e))

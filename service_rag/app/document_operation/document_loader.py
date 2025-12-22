@@ -1,8 +1,7 @@
 # -*- coding: utf-8 -*-
-import os, tempfile, pathlib, asyncio
+import os, tempfile, pathlib
 from typing import Optional, List, Dict
 from fastapi import UploadFile
-from pathlib import Path
 from starlette.concurrency import run_in_threadpool
 from langchain_community.document_loaders import AsyncHtmlLoader, TextLoader, CSVLoader, PyPDFLoader, UnstructuredPDFLoader
 from langchain_core.documents import Document
@@ -10,7 +9,7 @@ from PIL import Image
 import pytesseract, cv2, numpy as np, re, fitz
 
 
-# ---------- ImageContentExtractor （你已有，不动） ----------
+# ---------- ImageContentExtractor ----------
 class ImageContentExtractor:
     def __init__(self):
         self.ocr_config = r'--psm 3 --oem 3'
@@ -28,7 +27,6 @@ class ImageContentExtractor:
             image = Image.open(image_path)
             text = pytesseract.image_to_string(image, lang='chi_sim+eng', config=self.ocr_config)
             text = re.sub(r'(?<=\S) (?=\S)', '', text)
-            print(f" 🔥🚀🔥🚀🔥🚀🔥🚀 {text.strip()} 🐘✈️")
             return text.strip()
         except Exception as e:
             print(f" ❌Error {str(e)}")
@@ -44,7 +42,7 @@ class ImageContentExtractor:
         }
 
 
-# ---------- PDFMultimodalExtractor （你已有，不动） ----------
+# ---------- PDFMultimodalExtractor----------
 class PDFMultimodalExtractor:
     def __init__(self):
         self.image_extractor = ImageContentExtractor()
@@ -116,7 +114,7 @@ class PDFMultimodalExtractor:
             return []
 
 
-# ---------- DocumentLoader （只改 2 处） ----------
+# ---------- DocumentLoader ----------
 class DocumentLoader:
     def __init__(self,
                  upload_file: Optional[UploadFile] = None,
@@ -134,7 +132,7 @@ class DocumentLoader:
             document_type = self._detect_document_type()
         self.document_type = document_type
 
-    # ---------- 唯一关键修复：temp_dir 赋值 ----------
+    # ---------- 修复：temp_dir 赋值 ----------
     async def _create_temp_file_if_needed(self) -> None:
         if self.temp_file_path:               # 已创建过就跳过
             return
@@ -171,48 +169,52 @@ class DocumentLoader:
             headers = {"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36"}
             return AsyncHtmlLoader(self.urls, header_template=headers)
 
-        # 其余分支统一走临时文件
         await self._create_temp_file_if_needed()
         if not self.temp_file_path or not os.path.exists(self.temp_file_path):
             raise ValueError(f"临时文件 {self.filename} 创建失败")
 
         if self.document_type == "pdf":
             pdf_extractor = PDFMultimodalExtractor()
-            # 现在 temp_dir 已赋值，不会 None
+            # 1. 尝试抽图、抽表
             images_info = pdf_extractor.extract_images_from_pdf(
                 self.temp_file_path,
                 output_dir=os.path.join(self.temp_dir, "extracted_images")
             )
-            tables_info = pdf_extractor.extract_tables_from_pdf(self.temp_file_path)
-
-
-
-            pdf_loader_type = self.kwargs.get("pdf_loader_type", "pypdf")
-            if pdf_loader_type == "unstructured":
-                return UnstructuredPDFLoader(self.temp_file_path)
+            tables_info = pdf_extractor.extract_tables_from_pdf(self.temp_file_path) or []
+            # 2. 基础文字层
             pdf_docs= PyPDFLoader(self.temp_file_path).load()
 
+            image_txt = ""
+            table_text=""
             for page_idx, doc in enumerate(pdf_docs):
-                # 当前页的 OCR 文字
+                # --- OCR 文字（仅当本页有图才跑）---
                 ocr_text = "\n".join(
                     img['feature']['text_content']
                     for img in images_info
                     if img['page'] == page_idx and img['feature']['text_content']
                 )
-                # 当前页的表格文字
+                # --- 表格文字（仅当本页有表才跑）---
                 table_text = "\n".join(
                     t['text_representation']
                     for t in tables_info
-                    if t.get('page', 0) == page_idx and t['text_representation']
+                    if t.get('page', 0) == page_idx and t.get('text_representation')
                 )
-                # 追加到原内容
-                doc.page_content += "\n" + ocr_text + "\n" + table_text
 
-            print(f"🐶 {pdf_docs} 🐶")
-            multimodal_content = {'images': images_info, 'tables': tables_info, 'image_texts': []}
+                # 3. 追加到本页（非空才拼，避免多余换行）
+                if ocr_text:
+                    doc.page_content += f"\n{ocr_text}"
+                    image_txt += f"\n{ocr_text}"
+                if table_text:
+                    table_text +=f"\n{table_text}"
+                    doc.page_content += f"\n{table_text}"
 
 
-            return []
+            multimodal_content = {'images': [], # 以后可以存放image具体实例
+                                  'tables': [table_text],
+                                  'image_texts': [image_txt],
+                                  'plain_text': "\n\n".join(p.page_content for p in pdf_docs) }
+            print(f" 🔥🚀🔥🚀🔥🚀🔥{multimodal_content}🔥🚀🔥🚀🔥🚀🔥")
+            return multimodal_content
 
         if self.document_type == "image":
             image_extractor = ImageContentExtractor()
@@ -223,15 +225,18 @@ class DocumentLoader:
                 if images_info:
                     print(f"✅ 图片有可提取的文本,需要进行OCR提取 ")
                     image_feature = image_extractor.extract_image_features(image_path=self.temp_file_path)
-                    #  images': [] 可以存放缩略图,以后可以存储到vector里，暂留这个接口
-                    multimodal_content = {'images': [], 'tables': [], 'image_texts': [image_feature]}
+
+                    image_meta = {
+                        k: image_feature[k]
+                        for k in ('size', 'height', 'width', 'mode', 'format', 'file_size')
+                        if k in image_feature
+                    }
+                    multimodal_content = {'images': [image_meta],  'image_texts': [image_feature['text_content']]}
+
                     print(f"🐯✅ 提取后的内容 {multimodal_content} 🦊🦊🦊🦊🦊🦊")
                 else:
                     print(f"✅ 图片没有可提取的文本,是一个纯图片不需要进行OCR ")
                     return []
-
-
-
 
             except Exception as e:
                 print(f"❌ 判断是否执行ocr的逻辑报错 {str(e)} ")
@@ -262,7 +267,17 @@ class DocumentLoader:
             # Web 分支异步加载，其余同步
             if self.document_type == "web":
                 return await loader.aload()
-            return await run_in_threadpool(loader.load)
+
+            final_result = Document(
+                page_content=loader['plain_text'],
+                metadata={
+                    'images': loader['images'],
+                    'tables': loader['tables'],
+                    'image_texts': loader['image_texts'],
+                },
+            )
+
+            return [final_result]
 
     async def __aenter__(self):
         return self
