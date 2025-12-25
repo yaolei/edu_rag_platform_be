@@ -1,7 +1,5 @@
-from typing import Optional
+from typing import Optional, List
 from fastapi import UploadFile
-import datetime, asyncio
-
 from service_rag.app.embedding.embedding_data import EmbeddingData
 from service_rag.app.prompt.prompt import prompt_setting
 from langchain_core.prompts import PromptTemplate
@@ -9,9 +7,10 @@ from langchain_core.documents import Document
 from service_rag.app.document_operation.document_loader import DocumentLoader
 from service_rag.app.text_splitter.text_split import TextSplitter
 from service_rag.app.vector.vector_store import VectorStore
-from service_rag.app.llm_model.contect_llm import connect_baidu_llm
+from service_rag.app.llm_model.contect_llm import  connect_text_llm, analyze_with_image
 from service_rag.app.text_splitter.advanced_text_cleaner import AdvancedTextCleaner
 from pathlib import Path
+import base64
 
 class RagService:
     def __init__(self):
@@ -26,42 +25,136 @@ class RagService:
         self.vector = None
         self.question = None
         self.file_type = None
+        self.if_files = None
+        self.mutil_files = []
 
     @classmethod
-    async def create(cls, upload_file: UploadFile=None, embedding_type='questions', question:Optional[str] = None, **kwargs):
+    async def create(cls, upload_file: List[UploadFile]=None, embedding_type='questions', question:Optional[str] = None, **kwargs):
         instance = cls()
         await instance.initialize(upload_file, embedding_type, question, **kwargs)
         return instance
 
-    async def initialize(self, upload_file: UploadFile=None, embedding_type='questions', question:Optional[str] = None, **kwargs):
+    async def initialize(self, upload_file: List[UploadFile]=None, embedding_type='questions', question:Optional[str] = None, **kwargs):
         self.embedding_type = embedding_type
         self.question = question
         self.upload_file = upload_file
-
         self.embeddings = EmbeddingData(embedding_type=embedding_type)
-        print(f"✅ embedding module include success")
-
         self.vector = VectorStore(embedding_function=self.embeddings)
-
-        if upload_file:
-            self.file_name = upload_file.filename or "unknown file"
+        if not upload_file:  # 无文件
+            pass
+        elif len(upload_file) == 1:
+            self.if_files = False
+            self.file_name = upload_file[0].filename or "unknown file"
             path_obj = Path(self.file_name)
             self.file_name_without_extension = path_obj.stem
 
             try:
-                document_loader = DocumentLoader(upload_file)
+                document_loader = DocumentLoader(upload_file[0])
                 self.target_file = await document_loader.load()
+                document_loader.cleanup_temp_resources()
+                print(f"🚀🚀🚀🚀{ self.target_file} 🚀🚀")
                 if self.target_file and self.target_file[0].page_content == '':
                     self.target_file = None
                 else:
+                    if 'document_loader' in locals():
+                        document_loader.cleanup_temp_resources()
                     self.file_type = document_loader._detect_document_type()
                     return False
-                    pass
             except Exception as e:
                 print(f"❌ embedding module error: {str(e)}")
                 raise e
+        else:
+            self.if_files = True
+            for f in upload_file:
+                document_loader_muti_file = DocumentLoader(f)
+                self.mutil_files.append(await document_loader_muti_file.load())
+                document_loader_muti_file.cleanup_temp_resources()
 
+            print(f"🐯 {self.mutil_files} 🐯")
 
+    async def analyse_image_information(self):
+        """
+        重构后的图片分析流程：
+        1. 先用极简指令让LLaVA分析图片，得到客观描述。
+        2. 用描述中的关键词去查询向量数据库。
+        3. 最后结合描述和知识库，用文本模型生成最终答案。
+        """
+        print(f"🦁 开始分析图像信息，问题: {self.question} 🦁")
+
+        # 0. 直接读取图片文件 (无论有无OCR文本，都需要分析图片)
+        upload_file = self.upload_file[0]
+        content = await upload_file.read()
+        base64_str = base64.b64encode(content).decode("utf-8")
+        image_data_url = f"data:{upload_file.content_type};base64,{base64_str}"
+        print(f"🦁 处理文件: {upload_file.filename}")
+
+        # ========== 第一步：让图片模型进行基础分析 ==========
+        print(f"🦁 步骤1: 调用LLaVA进行基础图片分析...")
+        # 使用一个极简、聚焦的提示词，只要求描述
+        image_analysis_prompt = "请详细描述这张图片的场景、主要内容、物体、颜色和氛围。"
+        image_analysis_result = analyze_with_image(
+            image_base64_data_url=image_data_url,
+            question=image_analysis_prompt  # 传入简短的、只关于图片本身的问题
+        )
+
+        # 提取图片描述文本
+        if isinstance(image_analysis_result, dict) and 'content' in image_analysis_result:
+            image_description = image_analysis_result['content'].strip()
+        else:
+            image_description = str(image_analysis_result).strip()
+
+        # 处理LLaVA输出乱码的情况：如果描述异常简短或包含大量重复字符，视为失败
+        if len(image_description) < 50 or "幅幅幅" in image_description:
+            print(f"❌ LLaVA分析失败或输出异常，直接使用备用提示。")
+            image_description = f"用户上传了一张图片，文件名为：{upload_file.filename}。"
+
+        print(f"🦁 获得的图片描述摘要: {image_description[:150]}...")
+
+        # ========== 第二步：基于图片描述查询知识库 ==========
+        print(f"🦁 步骤2: 基于图片描述查询知识库...")
+        # 使用图片描述（而不是OCR文本）作为查询依据
+        query_for_vector = f"根据以下图片描述，查找相关知识：{image_description[:500]}"  # 限制长度
+        relevant_docs = self.vector.query_by_question_vector(query_for_vector)
+
+        knowledge_context = ""
+        if relevant_docs and relevant_docs != "False" and len(str(relevant_docs).strip()) > 10:
+            knowledge_context = str(relevant_docs)
+            print(f"🦁 找到相关知识点，长度: {len(knowledge_context)}")
+        else:
+            knowledge_context = "知识库中未找到与图片直接相关的信息。"
+            print(f"🦁 未在知识库中找到相关信息")
+
+        # ========== 第三步：综合信息，生成最终回答 ==========
+        print(f"🦁 步骤3: 综合图片描述与知识库信息，生成最终回答...")
+        # 构建给文本模型的提示词
+        final_prompt_for_text_model = f"""
+                请根据以下信息回答用户的问题。
+            
+                【图片分析结果】
+                {image_description}
+            
+                【相关背景知识】
+                {knowledge_context}
+            
+                【用户提出的问题】
+                {self.question if self.question else '请分析这张图片。'}
+            
+                请将图片分析结果和相关背景知识有机结合，生成一个完整、流畅的回答。如果背景知识显示“未找到相关信息”，则主要依据图片分析结果回答。
+                回答的开头请加上：“Evan 让您久等了。”
+                """
+        # 调用你的文本聊天函数
+        final_answer = connect_text_llm(
+            question=final_prompt_for_text_model  # 这里传入整合了所有信息的提示
+        )
+
+        # 处理最终结果
+        if isinstance(final_answer, dict) and 'content' in final_answer:
+            result_content = final_answer['content']
+        else:
+            result_content = str(final_answer)
+
+        print(f"🦁 最终回答生成完毕，长度: {len(result_content)}")
+        return result_content
     def store_document_to_vector(self, chunks):
         try:
             print(f"🚀 共有{len(chunks)} 进行保存")
@@ -123,7 +216,7 @@ class RagService:
             question=self.question,
         )
 
-        return connect_baidu_llm(formatter_prompt)
+        return connect_text_llm(formatter_prompt)
 
     async def run_rag_engine(self):
         print(f"🚀 开始判断文件上传的文件是否需要进行知识库存储")
@@ -157,7 +250,7 @@ class RagService:
             #     question=self.question,
             # )
             #
-            # connect_baidu_llm(dir_to_llm_prompt)
+            # connect_text_llm(dir_to_llm_prompt)
 
 
     def clear_data(self, chunks):

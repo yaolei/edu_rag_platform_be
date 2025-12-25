@@ -1,7 +1,6 @@
-from pydantic import BaseModel, Field, constr
+from pydantic import BaseModel, Field
 from datetime import datetime
 from typing import List, Optional
-from service_rag.app.modules.dataset_module import KnowledgeItemORM
 class ChatRequest(BaseModel):
     questions: Optional[str] = Field(...)
 

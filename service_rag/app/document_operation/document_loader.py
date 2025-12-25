@@ -3,7 +3,7 @@ import os, tempfile, pathlib
 from typing import Optional, List, Dict
 from fastapi import UploadFile
 from starlette.concurrency import run_in_threadpool
-from langchain_community.document_loaders import AsyncHtmlLoader, TextLoader, CSVLoader, PyPDFLoader, UnstructuredPDFLoader
+from langchain_community.document_loaders import AsyncHtmlLoader, TextLoader, CSVLoader, PyPDFLoader
 from langchain_core.documents import Document
 from PIL import Image
 import pytesseract, cv2, numpy as np, re, fitz
@@ -18,9 +18,21 @@ class ImageContentExtractor:
     def probably_has_text(self, pil_img: Image.Image) -> bool:
         """轻量规则：连通域数量判断"""
         gray = np.array(pil_img.convert('L'))
-        _, bw = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-        num_labels, _ = cv2.connectedComponents(bw)
-        return 50 <= num_labels <= 2000
+        blur = cv2.GaussianBlur(gray, (3, 3), 0)
+        _, bw = cv2.threshold(blur, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+        # num_labels, _ = cv2.connectedComponents(bw)
+        num_labels, labels, stats, _ = cv2.connectedComponentsWithStats(bw)
+        h, w = gray.shape
+        total_pixels = h * w
+
+        small_cnt = sum(1 for i in range(1, num_labels) if stats[i, cv2.CC_STAT_AREA] < 300)
+        small_area = sum(stats[i, cv2.CC_STAT_AREA] for i in range(1, num_labels) if stats[i, cv2.CC_STAT_AREA] < 300)
+        ratio = small_area / total_pixels
+
+        #  small_cnt < 2000, word
+        #  small_cnt >= 2000 and ratio > rang ( 0.01 ~0.02) image
+        #  small_cnt >= 2000 and ratio < 0.01 word + image
+        return small_cnt < 2000 or ratio < 0.015
 
     def extract_text_from_image(self, image_path: str):
         try:
@@ -212,6 +224,7 @@ class DocumentLoader:
             multimodal_content = {'images': [], # 以后可以存放image具体实例
                                   'tables': [table_text],
                                   'image_texts': [image_txt],
+                                  'is_pre_image': False,
                                   'plain_text': "\n\n".join(p.page_content for p in pdf_docs) }
             print(f" 🔥🚀🔥🚀🔥🚀🔥{multimodal_content}🔥🚀🔥🚀🔥🚀🔥")
             return multimodal_content
@@ -221,6 +234,7 @@ class DocumentLoader:
 
             pil_img = Image.open(self.temp_file_path)
             images_info = image_extractor.probably_has_text(pil_img)
+
             try:
                 if images_info:
                     print(f"✅ 图片有可提取的文本,需要进行OCR提取 ")
@@ -231,12 +245,12 @@ class DocumentLoader:
                         for k in ('size', 'height', 'width', 'mode', 'format', 'file_size')
                         if k in image_feature
                     }
-                    multimodal_content = {'images': [image_meta],  'image_texts': [image_feature['text_content']]}
-
-                    print(f"🐯✅ 提取后的内容 {multimodal_content} 🦊🦊🦊🦊🦊🦊")
+                    multimodal_content = {'images': [self.temp_file_path], 'is_pre_image':False ,'image_texts': image_feature['text_content']}
+                    return multimodal_content
                 else:
                     print(f"✅ 图片没有可提取的文本,是一个纯图片不需要进行OCR ")
-                    return []
+                    multimodal_content = {'images': self.temp_file_path, 'is_pre_image':True, 'image_texts': "" }
+                    return multimodal_content
 
             except Exception as e:
                 print(f"❌ 判断是否执行ocr的逻辑报错 {str(e)} ")
@@ -254,30 +268,65 @@ class DocumentLoader:
         raise ValueError(f"unsupported document type: {self.document_type}")
 
     async def load(self) -> List[Document]:
-
         none_store_struck = Document(
             page_content='',
             metadata={},
         )
+        try:
+            await self._create_temp_file_if_needed()
+            loader = await self._get_loader_by_type()
 
-        loader = await self._get_loader_by_type()
-        if loader == []:
-            return [none_store_struck]
-        else :
-            # Web 分支异步加载，其余同步
-            if self.document_type == "web":
-                return await loader.aload()
+            print(f"🔍 DocumentLoader - 文档类型: {self.document_type}")
+            print(f"🔍 DocumentLoader - 获取的 loader 类型: {type(loader)}")
 
-            final_result = Document(
-                page_content=loader['plain_text'],
-                metadata={
-                    'images': loader['images'],
-                    'tables': loader['tables'],
-                    'image_texts': loader['image_texts'],
-                },
-            )
+            if loader == []:
+                print("🔍 DocumentLoader - loader 为空列表，返回空文档")
+                return [none_store_struck]
+            else:
+                # 打印 loader 的内容以便调试
+                if isinstance(loader, dict):
+                    print(f"🔍 DocumentLoader - loader 字典内容:")
+                    for key, value in loader.items():
+                        print(f"  {key}: {str(value)[:100]}{'...' if len(str(value)) > 100 else ''}")
 
-            return [final_result]
+                final_result = Document(
+                    page_content=loader['image_texts'] if self.document_type == "image" else loader['plain_text'],
+                    metadata={
+                        'images': loader['images'],
+                        'is_pre_image': loader['is_pre_image'],
+                        'image_texts': loader['image_texts'],
+                    },
+                )
+                print(f"🔍 DocumentLoader - 最终返回的文档: page_content={final_result.page_content[:100]}...")
+                return [final_result]
+        except Exception as e:
+            print(f"❌ DocumentLoader 错误: {str(e)}")
+            import traceback
+            traceback.print_exc()
+            raise e
+
+    def cleanup_temp_resources(self):
+        """
+        显式清理所有临时资源（目录和文件）。
+        在文档处理完成后，由调用方决定是否调用。
+        """
+        # 1. 删除主临时文件 (__aexit__中已做，这里确保一下)
+        if self.temp_file_path and os.path.exists(self.temp_file_path):
+            try:
+                os.unlink(self.temp_file_path)
+            except:
+                pass
+        # 2. 删除整个临时目录（这是关键）
+        if self.temp_dir and os.path.exists(self.temp_dir):
+            import shutil
+            try:
+                shutil.rmtree(self.temp_dir)
+                print(f"🧹 已清理临时目录: {self.temp_dir}")
+            except Exception as e:
+                print(f"⚠️  清理临时目录失败 {self.temp_dir}: {e}")
+        self.temp_dir = None
+        self.temp_file_path = None
+
 
     async def __aenter__(self):
         return self

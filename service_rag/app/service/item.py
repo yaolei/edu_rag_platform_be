@@ -1,7 +1,7 @@
 import json
 
 from sqlalchemy.orm import Session
-from service_rag.app.llm_model.contect_llm import connect_baidu_llm
+from service_rag.app.llm_model.contect_llm import connect_text_llm
 from service_rag.app.schemas.item import KnowledgeItemCreate, KnowledgeItems
 from service_rag.app.repositories import item as repo
 from service_rag.app.run_rag import RagService
@@ -54,7 +54,7 @@ async def delete_knowledge_item(db:Session):
 
 
 def chat_with_none_knowledge(body):
-    res =  connect_baidu_llm(question=body.questions)
+    res =  connect_text_llm(question=body.questions)
     return {'status': 200, 'content': res}
 
 async def chat_with_knowledge_infor(questions):
@@ -85,3 +85,12 @@ async def delete_knowledge_item_by_ids(ids, db:Session):
             "status": 500,
             "message": str(e),
         }
+
+async def chat_with_knowledge_by_files(files, question):
+    try:
+        rag = await RagService.create(embedding_type="questions", upload_file=files, question= question)
+        image_result = await rag.analyse_image_information()
+        return image_result
+    except Exception as e:
+        print(f"❌ 处理文件时出错: {str(e)}")
+        raise
