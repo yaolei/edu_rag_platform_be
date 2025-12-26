@@ -33,7 +33,7 @@ async def create_knowledge_item(
         "knowledgeName": knowledgeName,
         "activate":activate,
     }
-    return await svc.create_knowledge_item(db, knowledge_data, file)
+    return await svc.create_knowledge_item(db, knowledge_data, [file])
 
 
 @router.post('/chat_by_files')
