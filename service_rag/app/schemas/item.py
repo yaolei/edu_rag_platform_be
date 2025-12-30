@@ -11,6 +11,7 @@ class ResponseORM(BaseModel):
 class KnowledgeItemCreate(BaseModel):
     knowledgeName:str = Field(..., max_length=94)
     activate:bool = Field(...)
+    doc_type:str
     corpus_id:str
 
 class DelKnowledgeItem(BaseModel):
@@ -22,6 +23,7 @@ class KnowledgeItems(BaseModel):
     knowledgeName:str
     activate:bool
     corpus_id:str
+    doc_type:str
     created_at: datetime
 
     model_config = {"from_attributes": True}

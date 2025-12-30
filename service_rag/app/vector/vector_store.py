@@ -3,6 +3,7 @@ from uuid import uuid4
 from chromadb.config import Settings
 from langchain_chroma import Chroma
 from numpy.distutils.from_template import list_re
+from langchain_core.documents import Document
 from langchain_community.vectorstores.utils import filter_complex_metadata
 
 
@@ -41,10 +42,24 @@ class VectorStore:
             print(str(e))
         return True
 
-    def add_document_to_vector(self, document):
+    def add_document_to_vector(self, document, doc_type):
+        print(f"🚀{doc_type} ✈️document: {document}")
         try:
             uuid = [str(uuid4()) for _ in range(len(document))]
-            docs = filter_complex_metadata(document)
+
+            # 处理文档，添加type信息
+            processed_docs = []
+            for doc in document:
+                # 确保metadata存在
+                metadata = getattr(doc, 'metadata', {}).copy() if hasattr(doc, 'metadata') else {}
+                metadata['type'] = doc_type
+
+                processed_docs.append(Document(
+                    page_content=doc.page_content,
+                    metadata=metadata
+                ))
+
+            docs = filter_complex_metadata(processed_docs)
             self.vectors.add_documents(documents=docs, ids=uuid)
 
         except Exception as e:

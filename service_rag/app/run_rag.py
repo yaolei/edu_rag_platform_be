@@ -26,18 +26,22 @@ class RagService:
         self.question = None
         self.file_type = None
         self.if_files = None
+        self.doc_type = None
         self.mutil_files = []
 
     @classmethod
-    async def create(cls, upload_file: List[UploadFile]=None, embedding_type='questions', question:Optional[str] = None, **kwargs):
+    async def create(cls, upload_file: List[UploadFile]=None, embedding_type='questions', doc_type="document",
+                     question:Optional[str] = None, **kwargs):
         instance = cls()
-        await instance.initialize(upload_file, embedding_type, question, **kwargs)
+        await instance.initialize(upload_file, embedding_type, doc_type, question, **kwargs)
         return instance
 
-    async def initialize(self, upload_file: List[UploadFile]=None, embedding_type='questions', question:Optional[str] = None, **kwargs):
+    async def initialize(self, upload_file: List[UploadFile]=None, embedding_type='questions', doc_type="document",
+                         question:Optional[str] = None, **kwargs):
         self.embedding_type = embedding_type
         self.question = question
         self.upload_file = upload_file
+        self.doc_type = doc_type
         self.embeddings = EmbeddingData(embedding_type=embedding_type)
         self.vector = VectorStore(embedding_function=self.embeddings)
         if not upload_file:  # 无文件
@@ -168,10 +172,10 @@ class RagService:
 
         print(f"🦁 最终回答生成完毕，长度: {len(result_content)}")
         return result_content
-    def store_document_to_vector(self, chunks):
+    def store_document_to_vector(self, chunks, doc_type):
         try:
             print(f"🚀 共有{len(chunks)} 进行保存")
-            ids = self.vector.add_document_to_vector(chunks)
+            ids = self.vector.add_document_to_vector(chunks, doc_type)
             print(f" stored {self.file_name_without_extension} documents successfully")
             return ids
         except Exception as e:
@@ -246,24 +250,15 @@ class RagService:
                 raise e
 
         else:
-
             if self.file_type !='image':
-                print(f" ✅ 开始进行保存知识库操作")
+                print(f" ✅ 开始进行保存知识库操作, 上传的知识类型{self.doc_type}")
                 print(f" 上传的文件名称: {self.file_name_without_extension}")
                 chunks = self.get_chunk_doc(self.target_file)
-                stored_ids = self.store_document_to_vector(chunks)
+                stored_ids = self.store_document_to_vector(chunks, self.doc_type)
                 return stored_ids
             else:
                 print(f"不能上传图片")
                 pass
-        # else:
-            print(f"✅ 上传的文件是个纯图片，不需要切片存储，直接进入模型阶段")
-            # dir_to_llm_prompt = self.prompt.format(
-            #     context=context_str,
-            #     question=self.question,
-            # )
-            #
-            # connect_text_llm(dir_to_llm_prompt)
 
 
     def clear_data(self, chunks):

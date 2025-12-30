@@ -9,13 +9,14 @@ from service_rag.app.run_rag import RagService
 
 async def create_knowledge_item(db:Session, obj, file):
     try:
-        rag = await RagService.create(upload_file=file, embedding_type="store")
+        rag = await RagService.create(upload_file=file, embedding_type="store", doc_type=obj['doc_type'])
         store_ids = await rag.run_rag_engine()
         if len(store_ids) > 0:
             print(f" ✅ 保存知识库存储成功, 开始进行物理数据库索引索引保存.")
             req_data = KnowledgeItemCreate(
                 knowledgeName=obj['knowledgeName'],
                 activate=obj['activate'],
+                doc_type=obj['doc_type'],
                 corpus_id=json.dumps(store_ids),
             )
             res = repo.create_knowledge_item(db, req_data)

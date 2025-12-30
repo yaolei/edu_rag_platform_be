@@ -25,6 +25,7 @@ async def chat_with_knowledge(body: ChatRequest):
 async def create_knowledge_item(
         knowledgeName: str = Form(..., max_length=94),
         activate:bool = Form(...),
+        document_type:str = Form(...),
         file:UploadFile = File(...),
         db:Session = Depends(get_db)
      ):
@@ -32,6 +33,7 @@ async def create_knowledge_item(
     knowledge_data = {
         "knowledgeName": knowledgeName,
         "activate":activate,
+        "doc_type":document_type,
     }
     return await svc.create_knowledge_item(db, knowledge_data, [file])
 
