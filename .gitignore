@@ -28,7 +28,8 @@ environment.yml
 # Ignore temporary files
 *.tmp
 *.temp
-
+logfile
+/logfile
 # Ignore configuration files
 
 # Ignore specific directories

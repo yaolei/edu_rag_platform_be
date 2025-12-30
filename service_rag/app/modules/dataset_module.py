@@ -1,9 +1,7 @@
 from sqlalchemy import (Column, Integer, String, DateTime,
-                        FLOAT, Boolean, ForeignKey, TEXT, false)
+                        Boolean, TEXT, false)
 from conect_databse.database import Base
 from datetime import datetime
-from typing import Optional
-import enum
 
 class KnowledgeItemORM(Base):
     __tablename__ = 'edu_knowledge_item'
