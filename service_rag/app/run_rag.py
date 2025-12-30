@@ -118,8 +118,21 @@ class RagService:
 
         knowledge_context = ""
         if relevant_docs and relevant_docs != "False" and len(str(relevant_docs).strip()) > 10:
-            knowledge_context = str(relevant_docs)
-            print(f"🦁 找到相关知识点，长度: {len(knowledge_context)}")
+                try:
+                    if isinstance(relevant_docs, list):
+                        # 提取每个doc的text字段
+                        text_list = []
+                        for doc in relevant_docs:
+                            if isinstance(doc, dict) and 'text' in doc:
+                                text_list.append(doc['text'])
+                            elif hasattr(doc, 'page_content'):  # 如果是Document对象
+                                text_list.append(doc.page_content)
+                        knowledge_context = "\n\n".join(text_list)
+                    else:
+                        knowledge_context = str(relevant_docs)
+                    print(f"🦁 找到相关知识点，长度: {len(knowledge_context)}")
+                except Exception as e:
+                    print(f"❌ 提取text字段时出错: {str(e)}")
         else:
             knowledge_context = "知识库中未找到与图片直接相关的信息。"
             print(f"🦁 未在知识库中找到相关信息")

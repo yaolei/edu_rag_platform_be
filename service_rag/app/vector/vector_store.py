@@ -8,7 +8,11 @@ from langchain_community.vectorstores.utils import filter_complex_metadata
 
 class VectorStore:
     def __init__(self, embedding_function, collection_name='example_collection',
-                 persist_directory='./chroma_langchain_db'):
+                 persist_directory='./chroma_langchain_db',
+                 enable_rerank=True,
+                 similarity_threshold=0.6):
+        self.similarity_threshold = similarity_threshold
+        self.enable_rerank = enable_rerank
         self.example_collection = collection_name
         self.embedding_function = embedding_function
         self.persist_directory = persist_directory
@@ -51,22 +55,38 @@ class VectorStore:
 
     def query_by_question_vector(self, question_vector):
         # embedding_query = self.embedding_function.embed_query(question_vector)
-        print(f"* 🙋 Question is {question_vector}")
-        print(f"* 🚀 start the first similarity search by 10 items: ")
-        result = self.vectors.similarity_search(question_vector, k=20)
+        results_with_score = self.vectors.similarity_search_with_score(question_vector,
+                                                                     k=10 if self.enable_rerank else 30)
+        filtered_results = []
+        for doc, score in results_with_score:
+            if score >= self.similarity_threshold:
+                filtered_results.append((doc, score))
 
-        if len(result) == 0:
-            print(f"* 📊 no data from the vector store")
-            return False
+        if not filtered_results:
+            print(f"* 📊 无符合阈值({self.similarity_threshold})的结果")
+            return []
 
-        print(f"🚀 start the second similarity search by 10 items... ")
-        final_doc = self.embedding_function.rerank_with_encoder(question_vector, result)
-        # threshold = 7.5
-        # filtered = [doc for doc in final_doc if doc["score"] >= threshold]
-        # for rank in final_doc[:10]:
-        #     print(f"-分数: ({rank['score']:.4f}): {rank['text'][:50]}, current score id is : {rank['corpus_id']}")
+        print(f"* ✅ 初筛后剩余 {len(filtered_results)} 个文档")
 
-        return final_doc[:10]
+        if self.enable_rerank and len(filtered_results) > 1:
+            print(f"* 🔄 启动重排序...")
+            docs_only = [doc for doc, _ in filtered_results]
+
+            max_rerank = min(10, len(docs_only))
+            final_doc = self.embedding_function.rerank_with_encoder(
+                question_vector,
+                docs_only[:max_rerank]
+            )
+            return final_doc[:5]  # 返回Top 5
+        else:
+            return [
+                {
+                    'corpus_id': i,
+                    'score': score,
+                    'text': doc.page_content[:500]  # 截断长文本
+                }
+                for i, (doc, score) in enumerate(filtered_results[:10])
+            ]
 
 
     def delete_document(self, ids):
