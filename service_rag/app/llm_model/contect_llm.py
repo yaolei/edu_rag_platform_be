@@ -14,8 +14,6 @@ def connect_text_llm(question:str, prompt:str=""):
     }]}
 
     r = requests.post(url, json=payload, headers={"Content-Type": "application/json", "Authorization": f"Bearer {setting.TOKEN_URL}"})
-
-    print(f"结果是🚀🚀🚀🚀🚀🚀{r.json()} 🚀🚀🚀🚀🚀")
     body = r.json()
     if 'error_code' in body:
         print("[ERNIE ERROR]", body)

@@ -42,24 +42,10 @@ class VectorStore:
             print(str(e))
         return True
 
-    def add_document_to_vector(self, document, doc_type):
-        print(f"🚀{doc_type} ✈️document: {document}")
+    def add_document_to_vector(self, document):
         try:
             uuid = [str(uuid4()) for _ in range(len(document))]
-
-            # 处理文档，添加type信息
-            processed_docs = []
-            for doc in document:
-                # 确保metadata存在
-                metadata = getattr(doc, 'metadata', {}).copy() if hasattr(doc, 'metadata') else {}
-                metadata['type'] = doc_type
-
-                processed_docs.append(Document(
-                    page_content=doc.page_content,
-                    metadata=metadata
-                ))
-
-            docs = filter_complex_metadata(processed_docs)
+            docs = filter_complex_metadata(document)
             self.vectors.add_documents(documents=docs, ids=uuid)
 
         except Exception as e:

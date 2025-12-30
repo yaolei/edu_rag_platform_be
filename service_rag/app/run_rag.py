@@ -174,8 +174,13 @@ class RagService:
         return result_content
     def store_document_to_vector(self, chunks, doc_type):
         try:
-            print(f"🚀 共有{len(chunks)} 进行保存")
-            ids = self.vector.add_document_to_vector(chunks, doc_type)
+            print(f"🚀 共有{len(chunks)} 进行保存，文档类型: {doc_type}")
+            for i, chunk in enumerate(chunks):
+                if hasattr(chunk, 'metadata'):
+                    chunk.metadata['doc_type'] = doc_type
+                else:
+                    chunk.metadata = {'doc_type': doc_type}
+            ids = self.vector.add_document_to_vector(chunks)
             print(f" stored {self.file_name_without_extension} documents successfully")
             return ids
         except Exception as e:
