@@ -15,14 +15,32 @@ def connect_text_llm(question:str, prompt:str=""):
 
     r = requests.post(url, json=payload, headers={"Content-Type": "application/json", "Authorization": f"Bearer {setting.TOKEN_URL}"})
     body = r.json()
+    # 打印响应的部分信息用于调试
+    print(f"🔍 API响应状态码: {r.status_code}")
+    print(f"🔍 API响应内容类型: {type(body)}")
+    print(f"🔍 API响应体部分: {str(body)[:500]}...")
+
     if 'error_code' in body:
         print("[ERNIE ERROR]", body)
         raise RuntimeError(f"ERNIE API:{body['error_code']} {body.get('error_msg', '')}")
     #
-    return {
-        "role": body.get('choices', [{}])[0].get('message', {}).get('role', ''),
-        "content": body.get('choices', [{}])[0].get('message', {}).get('content', '')
-    }
+    # 安全地提取内容
+    choices = body.get('choices', [])
+    if choices and len(choices) > 0:
+        message = choices[0].get('message', {})
+
+        # 重要：直接返回content字段，无论它是字符串还是字典
+        content = message.get('content', '')
+        return {
+            "role": message.get('role', ''),
+            "content": content  # 保持原始格式
+        }
+    else:
+        print(f"⚠️ API响应中没有choices字段: {body}")
+        return {
+            "role": "assistant",
+            "content": "{}"  # 返回空的JSON字符串
+        }
 
 def analyze_with_image(image_base64_data_url: str, question: str):
     """

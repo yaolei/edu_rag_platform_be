@@ -73,7 +73,6 @@ class RagService:
                 document_loader_muti_file = DocumentLoader(f)
                 self.mutil_files.append(await document_loader_muti_file.load())
                 document_loader_muti_file.cleanup_temp_resources()
-
             print(f"🐯 {self.mutil_files} 🐯")
 
     async def analyse_image_information(self):
@@ -209,8 +208,35 @@ class RagService:
         self.vector.clear_collection()
 
     def question_query_from_vector(self):
-        document = self.vector.query_by_question_vector(self.question)
-        return document
+        """
+        新逻辑：使用LLM分析意图，然后进行过滤查询
+        """
+        print(f"🔍 执行向量查询，问题: '{self.question}'")
+
+        # 1. 使用LLM分析意图
+        doc_types = self.analyze_intent_with_llm(self.question)
+
+        # 2. 如果有匹配的doc_type，进行过滤查询
+        if doc_types and len(doc_types) > 0:
+            print(f"🎯 使用过滤查询 (目标分区: {doc_types})")
+
+            # 使用过滤查询
+            results = self.vector.query_by_question_vector_with_filter(
+                question_vector=self.question,
+                doc_types=doc_types,
+                top_k=5  # 只需要5个最优结果
+            )
+
+            if results and len(results) > 0:
+                print(f"✅ 过滤查询完成: {len(results)} 个结果")
+                return results
+            else:
+                print(f"⚠️ 过滤查询无结果，知识库中没有相关类型的内容")
+                return []
+        else:
+            # 3. 如果没有匹配的doc_type，知识库没有相关信息
+            print(f"🎯 无匹配的文档类型，知识库没有相关信息")
+            return []
 
     def get_chunk_doc(self, target_file, clear_chunks=False):
         try:
@@ -227,25 +253,63 @@ class RagService:
             print(f" split error: {e}")
             raise e
 
-
     def get_context_from_docs(self, documents):
+        """构建上下文"""
         if not documents:
-            context_str = "(上下文知识库未检索到相关内容)"
+            formatter_prompt = prompt_setting.no_knowledge_template.replace(
+                '{question}', self.question
+            )
         else:
-            context_str = "\n".join(d["text"] for d in documents)
-        formatter_prompt = self.prompt.format(
-            context=context_str,
-            question=self.question,
-        )
+            context_str = self._build_simple_context(documents)
+            formatter_prompt = prompt_setting.rag_template_pro.replace(
+                '{context}', context_str
+            ).replace(
+                '{question}', self.question
+            )
 
+        print(f"✅ 最终Prompt长度: {len(formatter_prompt)} 字符")
         return connect_text_llm(formatter_prompt)
 
+    def _build_simple_context(self, documents):
+        """构建纯净的上下文，去掉内部标记和元数据"""
+        if not documents:
+            return ""
+
+        context_parts = []
+        for i, doc in enumerate(documents[:5]):  # 最多5个
+            content = ""
+
+            if isinstance(doc, dict):
+                content = doc.get('text', '')
+                if not content:
+                    content = doc.get('page_content', '')
+                    if not content and hasattr(doc, 'get'):
+                        # 尝试获取第一个字符串值
+                        for key, value in doc.items():
+                            if isinstance(value, str) and len(value.strip()) > 0:
+                                content = value
+                                break
+            elif hasattr(doc, 'page_content'):
+                # Document对象
+                content = doc.page_content
+
+            if content:
+                content = content.strip()
+                import re
+                content = re.sub(r'\s+', ' ', content)
+
+                # 只添加非空内容
+                if content:
+                    context_parts.append(content)
+
+        if not context_parts:
+            return ""
+
+        return "\n\n---\n\n".join(context_parts)
+
     async def run_rag_engine(self):
-        print(f"🚀 开始判断文件上传的文件是否需要进行知识库存储")
-        # if self.target_file:
-        print(f"🚀 RAG engine start and current embedding")
         if self.embedding_type == 'questions':
-            print(f" Flow the question process....")
+            print(f"✅进入问答场景....")
             res_doc = self.question_query_from_vector()
             try:
                 print(f"🚀 start query answer by LLM...")
@@ -253,7 +317,6 @@ class RagService:
             except Exception as e:
                 print(f"❌🔥 {str(e)}")
                 raise e
-
         else:
             if self.file_type !='image':
                 print(f" ✅ 开始进行保存知识库操作, 上传的知识类型{self.doc_type}")
@@ -289,7 +352,93 @@ class RagService:
         return corpus_ids
 
 
+    def dev_env_test_api(self):
+        self.vector.verify_doc_type_storage()
+        # 验证特定类型
+        # self.vector.verify_doc_type_storage("resume")
+        # self.vector.verify_doc_type_storage("code")
 
+    def analyze_intent_with_llm(self, question):
+        """
+        使用LLM分析问题意图，返回可能的doc_type数组
+        """
+        try:
+            # 使用prompt.py中的意图分析模板
+            intent_prompt = prompt_setting.intent_analysis_template.replace('{question}', question)
+
+            print(f"🎯 发送给LLM的意图分析请求: {intent_prompt[:200]}...")
+
+            # 直接传递字符串参数
+            result = connect_text_llm(intent_prompt)
+
+            # 调试：打印result的类型和内容
+            print(f"🎯 connect_text_llm返回类型: {type(result)}")
+            print(f"🎯 connect_text_llm返回值: {result}")
+
+            # 处理返回结果
+            content_dict = {}
+            if isinstance(result, dict):
+                print(f"🎯 result是字典，keys: {result.keys()}")
+                content = result.get('content', '')
+
+                # 重要：content可能是字典，也可能是字符串
+                if isinstance(content, dict):
+                    content_dict = content
+                elif isinstance(content, str):
+                    # 尝试解析字符串为字典
+                    import json
+                    try:
+                        content_dict = json.loads(content)
+                    except json.JSONDecodeError:
+                        # 如果不是JSON，尝试提取JSON
+                        import re
+                        json_match = re.search(r'\{.*\}', content, re.DOTALL)
+                        if json_match:
+                            try:
+                                content_dict = json.loads(json_match.group())
+                            except:
+                                pass
+
+            # 从content_dict中提取doc_types
+            if isinstance(content_dict, dict) and 'doc_types' in content_dict:
+                doc_types = content_dict['doc_types']
+                print(f"🎯 LLM意图分析结果: {doc_types}")
+                return doc_types
+
+            # 如果以上都失败，使用简单的关键词匹配
+            return self._fallback_intent_analysis(question)
+
+        except Exception as e:
+            print(f"❌ LLM意图分析失败: {str(e)}")
+            import traceback
+            traceback.print_exc()
+            # 返回默认值
+            return ['document']
+
+    def _fallback_intent_analysis(self, question):
+        """备用意图分析方法：基于关键词匹配"""
+        question_lower = question.lower()
+        doc_types = []
+
+        # 简历相关关键词
+        if any(word in question_lower for word in
+               ['简历', '求职', '候选人', '开发者', '经验', '招聘', '推荐', '工作经历', '项目经验']):
+            doc_types.append('resume')
+        # 代码相关关键词
+        if any(word in question_lower for word in ['代码', '编程', '技术栈', '开发', '程序', 'bug']):
+            doc_types.append('code')
+        # 图片相关关键词
+        if any(word in question_lower for word in ['图片', '图像', '照片', '图']):
+            doc_types.append('image_desc')
+        # 文档相关关键词
+        if any(word in question_lower for word in ['文档', '文件', '资料']):
+            doc_types.append('document')
+
+        if not doc_types:
+            doc_types.append('document')  # 默认
+
+        print(f"🎯 关键词匹配意图分析结果: {doc_types}")
+        return doc_types
 
     # async def run_by_web(self):
     #     print(f"🚀 Rag started at {datetime.datetime.now()} ")

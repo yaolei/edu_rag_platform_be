@@ -2,8 +2,6 @@ import os
 from uuid import uuid4
 from chromadb.config import Settings
 from langchain_chroma import Chroma
-from numpy.distutils.from_template import list_re
-from langchain_core.documents import Document
 from langchain_community.vectorstores.utils import filter_complex_metadata
 
 
@@ -54,6 +52,52 @@ class VectorStore:
         print(f"✅ successfully added {len(document)} documents to vector store")
         return uuid
 
+    def query_by_question_vector_with_filter(self, question_vector, doc_types=None, top_k=5):
+        if not doc_types:
+            return self.query_by_question_vector(question_vector)
+
+        try:
+            collection = self.vectors._collection
+            query_embedding = self.embedding_function.embed_query(question_vector)
+
+            # 构建过滤条件
+            if len(doc_types) == 1:
+                where_filter = {"doc_type": doc_types[0]}
+            else:
+                where_filter = {"doc_type": {"$in": doc_types}}
+
+            # 执行查询
+            results = collection.query(
+                query_embeddings=[query_embedding],
+                n_results=top_k,
+                where=where_filter,
+                include=["documents", "metadatas", "distances"]
+            )
+
+            # 格式化结果
+            formatted_results = []
+            if results and results['documents']:
+                for i in range(len(results['documents'][0])):
+                    doc_content = results['documents'][0][i]
+                    metadata = results['metadatas'][0][i] if results['metadatas'] else {}
+                    distance = results['distances'][0][i] if results['distances'] else 1.0
+
+                    # 计算分数
+                    score = 1.0 / (1.0 + distance)
+
+                    formatted_results.append({
+                        'corpus_id': i,
+                        'score': score,
+                        'text': doc_content,
+                        'metadata': metadata
+                    })
+
+            return formatted_results
+
+        except Exception as e:
+            print(f"❌ 过滤查询失败: {str(e)}")
+            return []
+
     def query_by_question_vector(self, question_vector):
         # embedding_query = self.embedding_function.embed_query(question_vector)
         results_with_score = self.vectors.similarity_search_with_score(question_vector,
@@ -84,7 +128,7 @@ class VectorStore:
                 {
                     'corpus_id': i,
                     'score': score,
-                    'text': doc.page_content[:500]  # 截断长文本
+                    'text': doc.page_content  # 截断长文本
                 }
                 for i, (doc, score) in enumerate(filtered_results[:10])
             ]
@@ -130,6 +174,47 @@ class VectorStore:
                 items.append(item)
             return items
 
+    # 在你的向量库管理类中添加一个验证方法
+    def verify_doc_type_storage(self, doc_type_to_check=None):
+        """
+        验证doc_type是否正确存储在向量库中
+        """
+        collections = self.vectors._collection
+        try:
+            # 方法1：直接查询向量库的所有文档
+            results = collections.get(include=["metadatas"])
+
+            if results and results['metadatas']:
+                print("🔍 验证向量库中的文档metadata:")
+                print(f"总文档数: {len(results['metadatas'])}")
+
+                # 统计各doc_type的数量
+                doc_type_counts = {}
+                for meta in results['metadatas']:
+                    doc_type = meta.get('doc_type', 'unknown')
+                    doc_type_counts[doc_type] = doc_type_counts.get(doc_type, 0) + 1
+
+                print("📊 文档类型统计:")
+                for doc_type, count in doc_type_counts.items():
+                    print(f"  - {doc_type}: {count}个")
+
+                # 如果需要检查特定类型
+                if doc_type_to_check:
+                    specific_docs = []
+                    for i, meta in enumerate(results['metadatas']):
+                        if meta.get('doc_type') == doc_type_to_check:
+                            specific_docs.append(i)
+
+                    print(f"\n📑 类型为 '{doc_type_to_check}' 的文档:")
+                    print(f"  数量: {len(specific_docs)}")
+                    if specific_docs:
+                        print(f"  索引位置: {specific_docs[:5]}{'...' if len(specific_docs) > 5 else ''}")
+
+            return True
+
+        except Exception as e:
+            print(f"❌ 验证失败: {str(e)}")
+            return False
 
 
 

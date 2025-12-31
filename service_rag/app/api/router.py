@@ -59,3 +59,7 @@ async def get_knowledge_item(db:Session = Depends(get_db)):
 @router.post('/del_knowledge_items_by_id', response_model=ResponseORM)
 async def get_knowledge_item(ids:DeleteKnowledgeItem, db:Session = Depends(get_db)):
     return await svc.delete_knowledge_item_by_ids(ids, db)
+
+@router.get('/dev_test_api_vector')
+async def dev_test_api_vector():
+    return await svc.dev_env_test_api()

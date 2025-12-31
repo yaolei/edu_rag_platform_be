@@ -95,3 +95,8 @@ async def chat_with_knowledge_by_files(files, question):
     except Exception as e:
         print(f"❌ 处理文件时出错: {str(e)}")
         raise
+
+async def dev_env_test_api():
+    rag = await RagService.create(embedding_type="questions", question='')
+    rag.dev_env_test_api()
+
