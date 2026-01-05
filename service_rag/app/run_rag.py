@@ -75,102 +75,99 @@ class RagService:
                 document_loader_muti_file.cleanup_temp_resources()
             print(f"🐯 {self.mutil_files} 🐯")
 
+
+    async def llava_get_content(self, prompt_sentence, image_rul, is_text_image):
+        prompt_sentence = prompt_sentence.strip()
+        llaiva_prompt = ""
+        if not is_text_image:
+            if self.question:
+                llaiva_prompt = prompt_setting.pure_image_qa_template.format(question=self.question)
+                print(f"🦁 用户提问: {llaiva_prompt[:100]}...")
+            else:
+                llaiva_prompt = prompt_sentence
+                print(f"🦁 用户未提问，自动生成图片描述")
+        else:
+            llaiva_prompt = prompt_sentence
+
+        final_answer = await analyze_with_image(
+            image_base64_data_url=image_rul,
+            question=llaiva_prompt
+        )
+
+        if isinstance(final_answer, dict) and 'content' in final_answer:
+            result_content = final_answer['content'].strip()
+        else:
+            result_content = str(final_answer).strip()
+
+        return result_content
+
     async def analyse_image_information(self):
         """
-        重构后的图片分析流程：
-        1. 先用极简指令让LLaVA分析图片，得到客观描述。
-        2. 用描述中的关键词去查询向量数据库。
-        3. 最后结合描述和知识库，用文本模型生成最终答案。
+        1. 使用专业提示词让LLaVA分析图片
+        2. 分析用户问题意图
+        3. 根据意图决定是否查询知识库
+        4. 使用专业图片问答模板生成最终回答
         """
-        print(f"🦁 开始分析图像信息，问题: {self.question} 🦁")
-
-        # 0. 直接读取图片文件 (无论有无OCR文本，都需要分析图片)
+        # 0. 直接读取图片文件
         upload_file = self.upload_file[0]
         content = await upload_file.read()
         base64_str = base64.b64encode(content).decode("utf-8")
         image_data_url = f"data:{upload_file.content_type};base64,{base64_str}"
         print(f"🦁 处理文件: {upload_file.filename}")
-
-        # ========== 第一步：让图片模型进行基础分析 ==========
-        print(f"🦁 步骤1: 调用LLaVA进行基础图片分析...")
-        # 使用一个极简、聚焦的提示词，只要求描述
-        image_analysis_prompt = "请详细描述这张图片的场景、主要内容、物体、颜色和氛围。"
-        image_analysis_result = analyze_with_image(
-            image_base64_data_url=image_data_url,
-            question=image_analysis_prompt  # 传入简短的、只关于图片本身的问题
-        )
-
-        # 提取图片描述文本
-        if isinstance(image_analysis_result, dict) and 'content' in image_analysis_result:
-            image_description = image_analysis_result['content'].strip()
+        # 纯图片
+        is_pure_image = not self.target_file
+        if is_pure_image:
+            return  await self.llava_get_content(prompt_setting.prue_image_analysis_template,
+                                           image_data_url, False)
         else:
-            image_description = str(image_analysis_result).strip()
+            # ========== 情况1：图文处理 ==========
+            print(f"🦁 开始分析图像信息，问题: {self.question} 🦁")
+            # 检查用户是否输入提问信息
+            analyse_text_image = await self.llava_get_content(prompt_setting.rag_image_analysis_template,
+                                   image_data_url, True)
+            if not self.question or self.question.strip() == "":
+                return analyse_text_image
+            else:
+                image_description = analyse_text_image
+                ocr_text = self.target_file[0].page_content
+                intent_analysis_prompt = prompt_setting.image_intent_prompt.format(
+                    image_description=image_description,
+                    ocr_text=ocr_text
+                )
+                doc_types = self.analyze_intent_with_llm(intent_analysis_prompt)
+                print(f"🈶问题的图文类型结果是: ✈️ {doc_types} ✈️")
 
-        # 处理LLaVA输出乱码的情况：如果描述异常简短或包含大量重复字符，视为失败
-        if len(image_description) < 50 or "幅幅幅" in image_description:
-            print(f"❌ LLaVA分析失败或输出异常，直接使用备用提示。")
-            image_description = f"用户上传了一张图片，文件名为：{upload_file.filename}。"
+                if len(doc_types) > 0:
+                    print(f"🈶知识库包含问题类型开始进行知识库查询")
+                    relevant_docs = self.vector.query_by_question_vector_with_filter(
+                            question_vector=self.question,
+                            doc_types=doc_types,
+                            top_k=5  # 只需要5个最优结果
+                    )
 
-        print(f"🦁 获得的图片描述摘要: {image_description[:150]}...")
+                    if len(relevant_docs) > 0:
+                        print(f"🎯识库有相关信息，开始智能融合知识库信息和用户问题")
+                        print(f"{analyse_text_image}")
 
-        # ========== 第二步：基于图片描述查询知识库 ==========
-        print(f"🦁 步骤2: 基于图片描述查询知识库...")
-        # 使用图片描述（而不是OCR文本）作为查询依据
-        query_for_vector = f"根据以下图片描述，查找相关知识：{image_description[:500]}"  # 限制长度
-        relevant_docs = self.vector.query_by_question_vector(query_for_vector)
+                        final_prompt_for_text_model = self.switch_correct_prompt(doc_types[0],
+                                                            image_description, relevant_docs, ocr_text)
+                    # # 调用文本聊天函数
+                        final_answer = connect_text_llm(final_prompt_for_text_model)
 
-        knowledge_context = ""
-        if relevant_docs and relevant_docs != "False" and len(str(relevant_docs).strip()) > 10:
-                try:
-                    if isinstance(relevant_docs, list):
-                        # 提取每个doc的text字段
-                        text_list = []
-                        for doc in relevant_docs:
-                            if isinstance(doc, dict) and 'text' in doc:
-                                text_list.append(doc['text'])
-                            elif hasattr(doc, 'page_content'):  # 如果是Document对象
-                                text_list.append(doc.page_content)
-                        knowledge_context = "\n\n".join(text_list)
+                        # 处理最终结果
+                        if isinstance(final_answer, dict) and 'content' in final_answer:
+                            result_content = final_answer['content']
+                        else:
+                            result_content = str(final_answer)
+
+                        print(f"🦁 最终回答生成完毕，长度: {len(result_content)}")
+                        return result_content
                     else:
-                        knowledge_context = str(relevant_docs)
-                    print(f"🦁 找到相关知识点，长度: {len(knowledge_context)}")
-                except Exception as e:
-                    print(f"❌ 提取text字段时出错: {str(e)}")
-        else:
-            knowledge_context = "知识库中未找到与图片直接相关的信息。"
-            print(f"🦁 未在知识库中找到相关信息")
+                        print(f"🎯识库没有相关信息，直接交给LLM")
+                        return analyse_text_image
+                else:
+                    return analyse_text_image
 
-        # ========== 第三步：综合信息，生成最终回答 ==========
-        print(f"🦁 步骤3: 综合图片描述与知识库信息，生成最终回答...")
-        # 构建给文本模型的提示词
-        final_prompt_for_text_model = f"""
-                请根据以下信息回答用户的问题。
-            
-                【图片分析结果】
-                {image_description}
-            
-                【相关背景知识】
-                {knowledge_context}
-            
-                【用户提出的问题】
-                {self.question if self.question else '请分析这张图片。'}
-            
-                请将图片分析结果和相关背景知识有机结合，生成一个完整、流畅的回答。如果背景知识显示“未找到相关信息”，则主要依据图片分析结果回答。
-                回答的开头请加上：“Evan 让您久等了。”
-                """
-        # 调用你的文本聊天函数
-        final_answer = connect_text_llm(
-            question=final_prompt_for_text_model  # 这里传入整合了所有信息的提示
-        )
-
-        # 处理最终结果
-        if isinstance(final_answer, dict) and 'content' in final_answer:
-            result_content = final_answer['content']
-        else:
-            result_content = str(final_answer)
-
-        print(f"🦁 最终回答生成完毕，长度: {len(result_content)}")
-        return result_content
     def store_document_to_vector(self, chunks, doc_type):
         try:
             print(f"🚀 共有{len(chunks)} 进行保存，文档类型: {doc_type}")
@@ -185,6 +182,33 @@ class RagService:
         except Exception as e:
                 print(f" stored {self.file_name_without_extension} documents failed: {str(e)}")
                 raise e
+
+    def switch_correct_prompt(self, doc_type, image_description, relevant_docs, ocr_text):
+        if doc_type == "resume":
+            final_prompt_for_text_model = prompt_setting.rag_image_qa_template.format(
+                image_description=image_description,
+                knowledge_context=relevant_docs,
+                ocr_text=ocr_text,
+                question=self.question,
+            )
+        elif doc_type == "code":
+            final_prompt_for_text_model = prompt_setting.code_rag_qa_template.format(
+                image_description=image_description,
+                knowledge_context=relevant_docs,
+                ocr_text=ocr_text,
+                question=self.question,
+            )
+        else:
+            # 文档类型
+            final_prompt_for_text_model = prompt_setting.general_doc_rag_qa_template.format(
+                image_description=image_description,
+                knowledge_context=relevant_docs,
+                ocr_text=ocr_text,
+                question=self.question,
+            )
+
+        return final_prompt_for_text_model
+
 
     def del_knowledge_item(self, ids):
         corpus_ids = self.collation_ids(ids)
@@ -428,7 +452,8 @@ class RagService:
         if any(word in question_lower for word in ['代码', '编程', '技术栈', '开发', '程序', 'bug']):
             doc_types.append('code')
         # 图片相关关键词
-        if any(word in question_lower for word in ['图片', '图像', '照片', '图']):
+        if any(word in question_lower for word in ['图片', '图像', '照片', '图', '图表', '流程图', '架构图',
+                                            '示意图', '结构', '视觉', '内容', '分析图片', '解释', '描述什么']):
             doc_types.append('image_desc')
         # 文档相关关键词
         if any(word in question_lower for word in ['文档', '文件', '资料']):

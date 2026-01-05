@@ -1,130 +1,11 @@
 # -*- coding: utf-8 -*-
 import os, tempfile, pathlib
-from typing import Optional, List, Dict
+from typing import Optional, List
 from fastapi import UploadFile
 from starlette.concurrency import run_in_threadpool
 from langchain_community.document_loaders import AsyncHtmlLoader, TextLoader, CSVLoader, PyPDFLoader
 from langchain_core.documents import Document
-from PIL import Image
-import pytesseract, cv2, numpy as np, re, fitz
-
-
-# ---------- ImageContentExtractor ----------
-class ImageContentExtractor:
-    def __init__(self):
-        self.ocr_config = r'--psm 3 --oem 3'
-        self.THUMB_SIZE = (300, 300)
-
-    def probably_has_text(self, pil_img: Image.Image) -> bool:
-        """轻量规则：连通域数量判断"""
-        gray = np.array(pil_img.convert('L'))
-        blur = cv2.GaussianBlur(gray, (3, 3), 0)
-        _, bw = cv2.threshold(blur, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-        # num_labels, _ = cv2.connectedComponents(bw)
-        num_labels, labels, stats, _ = cv2.connectedComponentsWithStats(bw)
-        h, w = gray.shape
-        total_pixels = h * w
-
-        small_cnt = sum(1 for i in range(1, num_labels) if stats[i, cv2.CC_STAT_AREA] < 300)
-        small_area = sum(stats[i, cv2.CC_STAT_AREA] for i in range(1, num_labels) if stats[i, cv2.CC_STAT_AREA] < 300)
-        ratio = small_area / total_pixels
-
-        #  small_cnt < 2000, word
-        #  small_cnt >= 2000 and ratio > rang ( 0.01 ~0.02) image
-        #  small_cnt >= 2000 and ratio < 0.01 word + image
-        return small_cnt < 2000 or ratio < 0.015
-
-    def extract_text_from_image(self, image_path: str):
-        try:
-            image = Image.open(image_path)
-            text = pytesseract.image_to_string(image, lang='chi_sim+eng', config=self.ocr_config)
-            text = re.sub(r'(?<=\S) (?=\S)', '', text)
-            return text.strip()
-        except Exception as e:
-            print(f" ❌Error {str(e)}")
-            return ""
-
-    def extract_image_features(self, image_path: str):
-        image = Image.open(image_path)
-        return {
-            'size': image.size, 'height': image.height, 'width': image.width,
-            'mode': image.mode, 'format': image.format,
-            'text_content': self.extract_text_from_image(image_path),
-            'file_size': os.path.getsize(image_path)
-        }
-
-
-# ---------- PDFMultimodalExtractor----------
-class PDFMultimodalExtractor:
-    def __init__(self):
-        self.image_extractor = ImageContentExtractor()
-
-    def extract_images_from_pdf(self, pdf_path: str, output_dir: str = None):
-        if output_dir is None:
-            output_dir = tempfile.mkdtemp(prefix='pdf_images_')
-        if not os.path.exists(output_dir):
-            os.makedirs(output_dir)
-
-        try:
-            doc = fitz.open(pdf_path)
-            images_info = []
-            for page_num in range(len(doc)):
-                page = doc.load_page(page_num)
-                for img_index, img in enumerate(page.get_images()):
-                    try:
-                        xref = img[0]
-                        pix = fitz.Pixmap(doc, xref)
-                        if pix.n - pix.alpha < 4:
-                            img_filename = f"page_{page_num}_img_{img_index}.png"
-                            img_path = os.path.join(output_dir, img_filename)
-                            pix.save(img_path)
-                            feat = self.image_extractor.extract_image_features(img_path)
-                            images_info.append({
-                                'page': page_num, 'image_index': img_index,
-                                'file_path': img_path, 'feature': feat,
-                                'bbox': img[1:5] if len(img) > 4 else None
-                            })
-                        pix = None
-                    except Exception as e:
-                        print(f"❌提取图像失败 (页面 {page_num}, 图像 {img_index}) : {str(e)}")
-                        continue
-            doc.close()
-            return images_info
-        except Exception as e:
-            print(f"❌❌提取图像失败 {str(e)}")
-            return []
-
-    def extract_tables_from_pdf(self, pdf_path:str) -> List[Dict]:
-        try:
-            import tabula
-            tables = tabula.read_pdf(pdf_path, pages='all', multiple_tables=True)
-            tables_info = []
-            for i, table in enumerate(tables):
-                if not table.empty:
-                    continue
-                table = table.fillna('')
-                table = table.applymap(lambda x: " ".join(str(x).split()) if x else '')
-
-                text_lines = [" ".join(row) for row in table.values if any(row)]
-                table_text = "\n".join(text_lines).strip()
-                csv_lines = [",".join(str(cell).strip() for cell in row) for row in table.values]
-                table_csv = "\n".join(csv_lines).strip()
-
-                tables_info.append({
-                    'table_index': i,
-                    'dataframe': table,
-                    'text_representation': table_text,
-                    'csv_representation':table_csv,
-                    'shape': table.shape
-                })
-            return tables_info
-        except ImportError:
-            print(f"表格提取")
-            return []
-        except Exception as e:
-            print(f"表格提取失败 {str(e)}")
-            return []
-
+from service_rag.app.document_operation.ocr_analyse import ImageContentExtractor, PDFMultimodalExtractor
 
 # ---------- DocumentLoader ----------
 class DocumentLoader:
@@ -232,30 +113,33 @@ class DocumentLoader:
         if self.document_type == "image":
             image_extractor = ImageContentExtractor()
 
-            pil_img = Image.open(self.temp_file_path)
-            images_info = image_extractor.probably_has_text(pil_img)
-
             try:
-                if images_info:
-                    print(f"✅ 图片有可提取的文本,需要进行OCR提取 ")
                     image_feature = image_extractor.extract_image_features(image_path=self.temp_file_path)
+                    has_text = image_feature.get('has_text', False)
+                    text_content = image_feature.get('text_content', '')
 
-                    image_meta = {
-                        k: image_feature[k]
-                        for k in ('size', 'height', 'width', 'mode', 'format', 'file_size')
-                        if k in image_feature
-                    }
-                    multimodal_content = {'images': [self.temp_file_path], 'is_pre_image':False ,'image_texts': image_feature['text_content']}
-                    return multimodal_content
-                else:
-                    print(f"✅ 图片没有可提取的文本,是一个纯图片不需要进行OCR ")
-                    multimodal_content = {'images': self.temp_file_path, 'is_pre_image':True, 'image_texts': "" }
-                    return multimodal_content
+                    if has_text and len(text_content.strip()) > 0:
+                        print(f"✅ 图片包含可提取的文本，需要进行OCR处理")
+                        print(f"   提取到的文本长度: {len(text_content)}")
+                        print(f"   文本预览: {text_content[:100]}...")
+
+                        multimodal_content = {'images': [self.temp_file_path], 'is_pre_image':False ,'image_texts': image_feature['text_content']}
+
+                        return multimodal_content
+                    else:
+                        print(f"✅ 图片没有可提取的文本，是一个纯图片")
+                        print(f"   OCR结果为空或过短: '{text_content}'")
+                        multimodal_content = {'images': self.temp_file_path, 'is_pre_image':True, 'image_texts': "" }
+                        return multimodal_content
 
             except Exception as e:
                 print(f"❌ 判断是否执行ocr的逻辑报错 {str(e)} ")
-
-            return []
+                multimodal_content = {
+                    'images': self.temp_file_path,
+                    'is_pre_image': True,
+                    'image_texts': ""
+                }
+                return multimodal_content
 
         if self.document_type == "txt":
             return TextLoader(self.temp_file_path, encoding=self.kwargs.get("encoding", "utf-8"))
@@ -283,12 +167,6 @@ class DocumentLoader:
                 print("🔍 DocumentLoader - loader 为空列表，返回空文档")
                 return [none_store_struck]
             else:
-                # 打印 loader 的内容以便调试
-                if isinstance(loader, dict):
-                    print(f"🔍 DocumentLoader - loader 字典内容:")
-                    for key, value in loader.items():
-                        print(f"  {key}: {str(value)[:100]}{'...' if len(str(value)) > 100 else ''}")
-
                 final_result = Document(
                     page_content=loader['image_texts'] if self.document_type == "image" else loader['plain_text'],
                     metadata={

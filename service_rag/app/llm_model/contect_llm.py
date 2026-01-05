@@ -4,14 +4,17 @@ from PIL import Image
 from service_rag.app.config.config import setting
 
 def connect_text_llm(question:str, prompt:str=""):
-    print(f" 传过来的问题是🔥😂😂 {question} 😂😂😂😂")
+    print(f"🎯传过来的问题是: {question} ")
     url = setting.CHAT_URL_TEMPLATE
     payload = {
         "model": "@cf/meta/llama-4-scout-17b-16e-instruct",
         "messages": [{
         "role": "user",
         "content": question +" "+prompt
-    }]}
+        }],
+        "max_tokens": 4000,
+        "temperature": 0.7,
+    }
 
     r = requests.post(url, json=payload, headers={"Content-Type": "application/json", "Authorization": f"Bearer {setting.TOKEN_URL}"})
     body = r.json()
@@ -42,7 +45,7 @@ def connect_text_llm(question:str, prompt:str=""):
             "content": "{}"  # 返回空的JSON字符串
         }
 
-def analyze_with_image(image_base64_data_url: str, question: str):
+async def analyze_with_image(image_base64_data_url: str, question: str):
     """
     使用 LLaVA 模型进行图片分析
     参数 image_base64_data_url: 格式为 "data:image/jpeg;base64,xxxx..." 的完整字符串
@@ -108,7 +111,6 @@ def analyze_with_image(image_base64_data_url: str, question: str):
             "content": f"图片处理失败: {str(e)}"
         }
 
-    url = setting.CHAT_URL_IMAGE_TEMPLATE
     url = setting.CHAT_URL_IMAGE_TEMPLATE
     print(f"🖼️ [图片模型] 使用专用图片API端点: {url}")
 
