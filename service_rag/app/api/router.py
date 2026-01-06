@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, File, UploadFile,Form
+from fastapi import HTTPException
 from conect_databse.database import get_db
 from sqlalchemy.orm import Session
 from service_rag.app.schemas.item import ChatRequest, ResponseORM, KnowledgeItems, DeleteKnowledgeItem
@@ -11,15 +12,23 @@ router = APIRouter()
 def test_api():
     return {'message': 'Evan work fine test'}
 
-@router.post('/chat')
-def chat_with_ai(body: ChatRequest):
-    res = svc.chat_with_none_knowledge(body)
-    return {'status': 200, 'content': res}
 
-@router.post('/chat_with_knowledge')
-async def chat_with_knowledge(body: ChatRequest):
-    res = await svc.chat_with_knowledge_infor(questions=body.questions)
-    return res
+@router.post('/chat_with_knowledge_stream')
+async def chat_stream(body: ChatRequest):
+    try:
+        return await svc.chat_with_knowledge_api_stream(questions=body.questions)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post('/chat_by_files_stream')
+async def chat_by_file_knowledge_stream( questions: Optional[str] = Form(None),   # 普通文本
+                                  files: List[UploadFile] = File([])):
+    try:
+        return await svc.chat_with_knowledge_file_stream(question=questions, files=files)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 
 @router.post('/upload_knowledge', response_model=ResponseORM)
 async def create_knowledge_item(

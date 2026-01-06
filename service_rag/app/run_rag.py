@@ -1,5 +1,10 @@
 from typing import Optional, List
 from fastapi import UploadFile
+import asyncio
+import time
+import base64
+import json
+from pathlib import Path
 from service_rag.app.embedding.embedding_data import EmbeddingData
 from service_rag.app.prompt.prompt import prompt_setting
 from langchain_core.prompts import PromptTemplate
@@ -7,10 +12,10 @@ from langchain_core.documents import Document
 from service_rag.app.document_operation.document_loader import DocumentLoader
 from service_rag.app.text_splitter.text_split import TextSplitter
 from service_rag.app.vector.vector_store import VectorStore
-from service_rag.app.llm_model.contect_llm import  connect_text_llm, analyze_with_image
+from service_rag.app.llm_model.contect_llm import  connect_text_llm, analyze_with_image, stream_llm_response
 from service_rag.app.text_splitter.advanced_text_cleaner import AdvancedTextCleaner
-from pathlib import Path
-import base64
+from service_rag.app.service.gen_util import switch_correct_prompt, build_simple_context
+
 
 class RagService:
     def __init__(self):
@@ -108,65 +113,202 @@ class RagService:
         3. 根据意图决定是否查询知识库
         4. 使用专业图片问答模板生成最终回答
         """
-        # 0. 直接读取图片文件
-        upload_file = self.upload_file[0]
-        content = await upload_file.read()
-        base64_str = base64.b64encode(content).decode("utf-8")
-        image_data_url = f"data:{upload_file.content_type};base64,{base64_str}"
-        print(f"🦁 处理文件: {upload_file.filename}")
-        # 纯图片
-        is_pure_image = not self.target_file
-        if is_pure_image:
-            return  await self.llava_get_content(prompt_setting.prue_image_analysis_template,
-                                           image_data_url, False)
-        else:
-            # ========== 情况1：图文处理 ==========
-            print(f"🦁 开始分析图像信息，问题: {self.question} 🦁")
-            # 检查用户是否输入提问信息
-            analyse_text_image = await self.llava_get_content(prompt_setting.rag_image_analysis_template,
-                                   image_data_url, True)
-            if not self.question or self.question.strip() == "":
-                return analyse_text_image
-            else:
-                image_description = analyse_text_image
-                ocr_text = self.target_file[0].page_content
-                intent_analysis_prompt = prompt_setting.image_intent_prompt.format(
-                    image_description=image_description,
-                    ocr_text=ocr_text
-                )
-                doc_types = self.analyze_intent_with_llm(intent_analysis_prompt)
-                print(f"🈶问题的图文类型结果是: ✈️ {doc_types} ✈️")
+        try:
+            # 0. 直接读取图片文件
+            upload_file = self.upload_file[0]
+            content = await upload_file.read()
+            base64_str = base64.b64encode(content).decode("utf-8")
+            image_data_url = f"data:{upload_file.content_type};base64,{base64_str}"
+            print(f"🦁 处理文件: {upload_file.filename}")
 
-                if len(doc_types) > 0:
-                    print(f"🈶知识库包含问题类型开始进行知识库查询")
-                    relevant_docs = self.vector.query_by_question_vector_with_filter(
+            # 纯图片
+            is_pure_image = not self.target_file
+            if is_pure_image:
+                print("🎯 进入纯图片分析分支")
+                # 获取纯图片分析结果
+                result_content = await self.llava_get_content(
+                    prompt_setting.prue_image_analysis_template,
+                    image_data_url,
+                    False
+                )
+                print(f"📊 获取到纯图片分析结果，长度: {len(result_content)}")
+
+                import re
+
+                # 使用正则表达式按中文标点分割句子
+                sentences = re.split(r'([。！？；\.!?;])', result_content)
+
+                # 重新组合句子，保留标点
+                chunks = []
+                current_chunk = ""
+
+                for i in range(0, len(sentences), 2):
+                    if i + 1 < len(sentences):
+                        sentence = sentences[i] + sentences[i + 1]
+                    else:
+                        sentence = sentences[i]
+
+                    # 如果当前chunk为空或句子很短，直接添加
+                    if not current_chunk or len(sentence.strip()) < 10:
+                        current_chunk += sentence
+                    else:
+                        # 如果句子包含换行符，说明是段落分隔
+                        if '\n' in sentence:
+                            if current_chunk:
+                                chunks.append(current_chunk.strip())
+                            current_chunk = sentence
+                        # 如果句子较长，单独作为一个chunk
+                        elif len(sentence.strip()) > 30:
+                            if current_chunk:
+                                chunks.append(current_chunk.strip())
+                            chunks.append(sentence.strip())
+                            current_chunk = ""
+                        # 否则合并到当前chunk
+                        else:
+                            current_chunk += sentence
+
+                if current_chunk.strip():
+                    chunks.append(current_chunk.strip())
+
+                # 将字符串转换为流式返回 - 使用异步方式
+                import json
+                for i, chunk in enumerate(chunks):
+                    if not chunk.strip():
+                        continue
+
+                    data = {
+                        "choices": [{"delta": {"content": chunk + " "}}]
+                    }
+                    yield f"data: {json.dumps(data)}\n\n"
+
+                    # 根据chunk长度动态调整延迟
+                    delay = min(0.15, max(0.05, len(chunk) / 300))
+                    await asyncio.sleep(delay)
+
+                yield "data: [DONE]\n\n"
+                return
+
+            else:
+                # ========== 情况1：图文处理 ==========
+                print(f"🦁 开始分析图像信息，问题: {self.question} 🦁")
+
+                # 检查用户是否输入提问信息
+                analyse_text_image = await self.llava_get_content(
+                    prompt_setting.rag_image_analysis_template,
+                    image_data_url,
+                    True
+                )
+
+                if not self.question or self.question.strip() == "":
+                    print("🎯 没有用户问题，直接返回图片分析结果")
+                    # 将字符串转换为流式返回
+                    import json
+                    chunk_size = 50
+                    total_chunks = (len(analyse_text_image) + chunk_size - 1) // chunk_size
+
+                    for i in range(0, len(analyse_text_image), chunk_size):
+                        chunk = analyse_text_image[i:i + chunk_size]
+                        data = {
+                            "choices": [{"delta": {"content": chunk}}]
+                        }
+                        print(f"📤 发送第 {i // chunk_size + 1}/{total_chunks} 个 chunk，长度: {len(chunk)}")
+                        yield f"data: {json.dumps(data)}\n\n"
+                        await asyncio.sleep(0.01)
+
+                    yield "data: [DONE]\n\n"
+
+                else:
+                    print(f"🎯 有用户问题，进行意图分析和知识库查询")
+                    image_description = analyse_text_image
+                    ocr_text = self.target_file[0].page_content
+                    intent_analysis_prompt = prompt_setting.image_intent_prompt.format(
+                        image_description=image_description,
+                        ocr_text=ocr_text
+                    )
+                    doc_types = self.analyze_intent_with_llm(intent_analysis_prompt)
+                    print(f"🈶 问题的图文类型结果是: {doc_types}")
+
+                    if len(doc_types) > 0:
+                        print(f"🈶 知识库包含问题类型，开始进行知识库查询")
+                        relevant_docs = self.vector.query_by_question_vector_with_filter(
                             question_vector=self.question,
                             doc_types=doc_types,
-                            top_k=5  # 只需要5个最优结果
-                    )
+                            top_k=5
+                        )
 
-                    if len(relevant_docs) > 0:
-                        print(f"🎯识库有相关信息，开始智能融合知识库信息和用户问题")
-                        print(f"{analyse_text_image}")
+                        if len(relevant_docs) > 0:
+                            print(f"🎯 知识库有相关信息，开始智能融合知识库信息和用户问题")
+                            final_prompt_for_text_model = switch_correct_prompt(
+                                self.question,
+                                doc_types[0],
+                                image_description,
+                                relevant_docs,
+                                ocr_text
+                            )
 
-                        final_prompt_for_text_model = self.switch_correct_prompt(doc_types[0],
-                                                            image_description, relevant_docs, ocr_text)
-                    # # 调用文本聊天函数
-                        final_answer = connect_text_llm(final_prompt_for_text_model)
+                            # 记录开始时间
+                            start_time = time.time()
+                            print(f"🔄 开始流式生成，prompt长度: {len(final_prompt_for_text_model)}")
 
-                        # 处理最终结果
-                        if isinstance(final_answer, dict) and 'content' in final_answer:
-                            result_content = final_answer['content']
+                            # 调用流式LLM
+                            chunk_count = 0
+                            async for chunk in stream_llm_response(final_prompt_for_text_model):
+                                if chunk:
+                                    chunk_count += 1
+                                    if chunk_count % 10 == 0:  # 每10个chunk打印一次
+                                        print(f"📤 流式LLM第 {chunk_count} 个 chunk")
+                                    yield chunk
+
+                            # 发送结束信号
+                            yield "data: [DONE]\n\n"
+                            end_time = time.time()
+                            print(f"✅ 流式生成完成，共 {chunk_count} 个 chunk，耗时: {end_time - start_time:.2f}秒")
+
                         else:
-                            result_content = str(final_answer)
+                            print(f"🎯 知识库没有相关信息，直接返回图片分析结果")
+                            # 将字符串转换为流式返回
+                            import json
+                            chunk_size = 50
+                            total_chunks = (len(analyse_text_image) + chunk_size - 1) // chunk_size
 
-                        print(f"🦁 最终回答生成完毕，长度: {len(result_content)}")
-                        return result_content
+                            for i in range(0, len(analyse_text_image), chunk_size):
+                                chunk = analyse_text_image[i:i + chunk_size]
+                                data = {
+                                    "choices": [{"delta": {"content": chunk}}]
+                                }
+                                print(f"📤 发送第 {i // chunk_size + 1}/{total_chunks} 个 chunk，长度: {len(chunk)}")
+                                yield f"data: {json.dumps(data)}\n\n"
+                                await asyncio.sleep(0.01)
+
+                            yield "data: [DONE]\n\n"
+
                     else:
-                        print(f"🎯识库没有相关信息，直接交给LLM")
-                        return analyse_text_image
-                else:
-                    return analyse_text_image
+                        print(f"🎯 无匹配文档类型，返回图片分析结果")
+                        # 将字符串转换为流式返回
+                        import json
+                        chunk_size = 50
+                        total_chunks = (len(analyse_text_image) + chunk_size - 1) // chunk_size
+
+                        for i in range(0, len(analyse_text_image), chunk_size):
+                            chunk = analyse_text_image[i:i + chunk_size]
+                            data = {
+                                "choices": [{"delta": {"content": chunk}}]
+                            }
+                            print(f"📤 发送第 {i // chunk_size + 1}/{total_chunks} 个 chunk，长度: {len(chunk)}")
+                            yield f"data: {json.dumps(data)}\n\n"
+                            await asyncio.sleep(0.01)
+
+                        yield "data: [DONE]\n\n"
+
+        except Exception as e:
+            import json
+            print(f"❌ 图片分析异常: {e}")
+            import traceback
+            traceback.print_exc()
+            error_data = json.dumps({"error": str(e)})
+            yield f"data: {error_data}\n\n"
+            yield "data: [DONE]\n\n"
+
 
     def store_document_to_vector(self, chunks, doc_type):
         try:
@@ -182,33 +324,6 @@ class RagService:
         except Exception as e:
                 print(f" stored {self.file_name_without_extension} documents failed: {str(e)}")
                 raise e
-
-    def switch_correct_prompt(self, doc_type, image_description, relevant_docs, ocr_text):
-        if doc_type == "resume":
-            final_prompt_for_text_model = prompt_setting.rag_image_qa_template.format(
-                image_description=image_description,
-                knowledge_context=relevant_docs,
-                ocr_text=ocr_text,
-                question=self.question,
-            )
-        elif doc_type == "code":
-            final_prompt_for_text_model = prompt_setting.code_rag_qa_template.format(
-                image_description=image_description,
-                knowledge_context=relevant_docs,
-                ocr_text=ocr_text,
-                question=self.question,
-            )
-        else:
-            # 文档类型
-            final_prompt_for_text_model = prompt_setting.general_doc_rag_qa_template.format(
-                image_description=image_description,
-                knowledge_context=relevant_docs,
-                ocr_text=ocr_text,
-                question=self.question,
-            )
-
-        return final_prompt_for_text_model
-
 
     def del_knowledge_item(self, ids):
         corpus_ids = self.collation_ids(ids)
@@ -252,13 +367,11 @@ class RagService:
             )
 
             if results and len(results) > 0:
-                print(f"✅ 过滤查询完成: {len(results)} 个结果")
                 return results
             else:
                 print(f"⚠️ 过滤查询无结果，知识库中没有相关类型的内容")
                 return []
         else:
-            # 3. 如果没有匹配的doc_type，知识库没有相关信息
             print(f"🎯 无匹配的文档类型，知识库没有相关信息")
             return []
 
@@ -277,80 +390,55 @@ class RagService:
             print(f" split error: {e}")
             raise e
 
-    def get_context_from_docs(self, documents):
-        """构建上下文"""
+    async def stream_context_from_docs(self, documents):
+        """流式生成上下文"""
         if not documents:
             formatter_prompt = prompt_setting.no_knowledge_template.replace(
                 '{question}', self.question
             )
         else:
-            context_str = self._build_simple_context(documents)
+            context_str = build_simple_context(documents)
             formatter_prompt = prompt_setting.rag_template_pro.replace(
                 '{context}', context_str
             ).replace(
                 '{question}', self.question
             )
 
-        print(f"✅ 最终Prompt长度: {len(formatter_prompt)} 字符")
-        return connect_text_llm(formatter_prompt)
+        print(f"🔄 开始流式生成，prompt长度: {len(formatter_prompt)}")
 
-    def _build_simple_context(self, documents):
-        """构建纯净的上下文，去掉内部标记和元数据"""
-        if not documents:
-            return ""
+        try:
+            # 记录开始时间
+            start_time = time.time()
 
-        context_parts = []
-        for i, doc in enumerate(documents[:5]):  # 最多5个
-            content = ""
+            # 调用流式LLM
+            async for chunk in stream_llm_response(formatter_prompt):
+                if chunk:
+                    yield chunk
 
-            if isinstance(doc, dict):
-                content = doc.get('text', '')
-                if not content:
-                    content = doc.get('page_content', '')
-                    if not content and hasattr(doc, 'get'):
-                        # 尝试获取第一个字符串值
-                        for key, value in doc.items():
-                            if isinstance(value, str) and len(value.strip()) > 0:
-                                content = value
-                                break
-            elif hasattr(doc, 'page_content'):
-                # Document对象
-                content = doc.page_content
+            # 发送结束信号
+            yield "data: [DONE]\n\n"
 
-            if content:
-                content = content.strip()
-                import re
-                content = re.sub(r'\s+', ' ', content)
+            end_time = time.time()
+            print(f"✅ 流式生成完成，耗时: {end_time - start_time:.2f}秒")
 
-                # 只添加非空内容
-                if content:
-                    context_parts.append(content)
+        except Exception as e:
+            print(f"❌ 流式生成异常: {e}")
+            error_data = json.dumps({"error": str(e)})
+            yield f"data: {error_data}\n\n"
+            yield "data: [DONE]\n\n"
 
-        if not context_parts:
-            return ""
-
-        return "\n\n---\n\n".join(context_parts)
-
-    async def run_rag_engine(self):
-        if self.embedding_type == 'questions':
-            print(f"✅进入问答场景....")
-            res_doc = self.question_query_from_vector()
-            try:
-                print(f"🚀 start query answer by LLM...")
-                return self.get_context_from_docs(res_doc)
-            except Exception as e:
-                print(f"❌🔥 {str(e)}")
-                raise e
-        else:
-            if self.file_type !='image':
+    async def upload_infor_to_vector(self):
+        try:
+            if self.file_type != 'image':
                 print(f" ✅ 开始进行保存知识库操作, 上传的知识类型{self.doc_type}")
-                print(f" 上传的文件名称: {self.file_name_without_extension}")
                 chunks = self.get_chunk_doc(self.target_file)
                 stored_ids = self.store_document_to_vector(chunks, self.doc_type)
                 return stored_ids
             else:
                 print(f"不能上传图片")
                 pass
+        except Exception as e:
+            print(f"❌存储向量数据库失败 {str(e)}")
 
 
     def clear_data(self, chunks):
@@ -390,22 +478,12 @@ class RagService:
             # 使用prompt.py中的意图分析模板
             intent_prompt = prompt_setting.intent_analysis_template.replace('{question}', question)
 
-            print(f"🎯 发送给LLM的意图分析请求: {intent_prompt[:200]}...")
-
-            # 直接传递字符串参数
+            # 直接传递字符串参数, 使用小型模型查询意图
             result = connect_text_llm(intent_prompt)
-
-            # 调试：打印result的类型和内容
-            print(f"🎯 connect_text_llm返回类型: {type(result)}")
-            print(f"🎯 connect_text_llm返回值: {result}")
-
             # 处理返回结果
             content_dict = {}
             if isinstance(result, dict):
-                print(f"🎯 result是字典，keys: {result.keys()}")
                 content = result.get('content', '')
-
-                # 重要：content可能是字典，也可能是字符串
                 if isinstance(content, dict):
                     content_dict = content
                 elif isinstance(content, str):
@@ -429,41 +507,13 @@ class RagService:
                 print(f"🎯 LLM意图分析结果: {doc_types}")
                 return doc_types
 
-            # 如果以上都失败，使用简单的关键词匹配
-            return self._fallback_intent_analysis(question)
+            return []
 
         except Exception as e:
             print(f"❌ LLM意图分析失败: {str(e)}")
             import traceback
             traceback.print_exc()
-            # 返回默认值
-            return ['document']
-
-    def _fallback_intent_analysis(self, question):
-        """备用意图分析方法：基于关键词匹配"""
-        question_lower = question.lower()
-        doc_types = []
-
-        # 简历相关关键词
-        if any(word in question_lower for word in
-               ['简历', '求职', '候选人', '开发者', '经验', '招聘', '推荐', '工作经历', '项目经验']):
-            doc_types.append('resume')
-        # 代码相关关键词
-        if any(word in question_lower for word in ['代码', '编程', '技术栈', '开发', '程序', 'bug']):
-            doc_types.append('code')
-        # 图片相关关键词
-        if any(word in question_lower for word in ['图片', '图像', '照片', '图', '图表', '流程图', '架构图',
-                                            '示意图', '结构', '视觉', '内容', '分析图片', '解释', '描述什么']):
-            doc_types.append('image_desc')
-        # 文档相关关键词
-        if any(word in question_lower for word in ['文档', '文件', '资料']):
-            doc_types.append('document')
-
-        if not doc_types:
-            doc_types.append('document')  # 默认
-
-        print(f"🎯 关键词匹配意图分析结果: {doc_types}")
-        return doc_types
+            return []
 
     # async def run_by_web(self):
     #     print(f"🚀 Rag started at {datetime.datetime.now()} ")

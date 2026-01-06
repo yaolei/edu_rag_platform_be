@@ -1,8 +1,67 @@
 import requests, json, base64
 from io import BytesIO
 from PIL import Image
+import asyncio
 from service_rag.app.config.config import setting
 
+
+async def stream_llm_response(prompt: str):
+    """流式调用LLM - 直接转发SSE响应"""
+    url = setting.CHAT_URL_TEMPLATE
+    payload = {
+        "model": "@cf/meta/llama-4-scout-17b-16e-instruct",
+        "messages": [{
+            "role": "user",
+            "content": prompt
+        }],
+        "max_tokens": 4000,
+        "temperature": 0.7,
+        "stream": True
+    }
+
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {setting.TOKEN_URL}"
+    }
+
+    try:
+        import aiohttp
+        async with aiohttp.ClientSession() as session:
+            async with session.post(url, json=payload, headers=headers, timeout=60) as response:
+
+                if response.status != 200:
+                    error_text = await response.text()
+                    print(f"❌ LLM API返回错误: {error_text[:200]}")
+                    error_json = json.dumps({"error": f"LLM API错误: {response.status}"})
+                    yield f"data: {error_json}\n\n"
+                    return
+
+                print(f"✅ LLM API连接成功，开始接收流式数据")
+
+                # 重要：直接读取并转发原始SSE数据
+                async for data in response.content.iter_any():
+                    if data:
+                        chunk = data.decode('utf-8')
+                        yield chunk
+                print(f"✅ LLM流式数据接收完成")
+
+    except asyncio.TimeoutError:
+        print("❌ LLM请求超时")
+        error_json = json.dumps({"error": "请求超时，请稍后重试"})
+        yield f"data: {error_json}\n\n"
+    except aiohttp.ClientError as e:
+        print(f"❌ 网络请求失败: {e}")
+        error_json = json.dumps({"error": f"网络请求失败: {str(e)}"})
+        yield f"data: {error_json}\n\n"
+    except Exception as e:
+        print(f"❌ 未知错误: {e}")
+        import traceback
+        traceback.print_exc()
+        error_json = json.dumps({"error": f"处理失败: {str(e)}"})
+        yield f"data: {error_json}\n\n"
+
+
+# only use for the intent model
 def connect_text_llm(question:str, prompt:str=""):
     print(f"🎯传过来的问题是: {question} ")
     url = setting.CHAT_URL_TEMPLATE
@@ -12,16 +71,12 @@ def connect_text_llm(question:str, prompt:str=""):
         "role": "user",
         "content": question +" "+prompt
         }],
-        "max_tokens": 4000,
+        "max_tokens": 2000,
         "temperature": 0.7,
     }
 
     r = requests.post(url, json=payload, headers={"Content-Type": "application/json", "Authorization": f"Bearer {setting.TOKEN_URL}"})
     body = r.json()
-    # 打印响应的部分信息用于调试
-    print(f"🔍 API响应状态码: {r.status_code}")
-    print(f"🔍 API响应内容类型: {type(body)}")
-    print(f"🔍 API响应体部分: {str(body)[:500]}...")
 
     if 'error_code' in body:
         print("[ERNIE ERROR]", body)
@@ -39,7 +94,6 @@ def connect_text_llm(question:str, prompt:str=""):
             "content": content  # 保持原始格式
         }
     else:
-        print(f"⚠️ API响应中没有choices字段: {body}")
         return {
             "role": "assistant",
             "content": "{}"  # 返回空的JSON字符串
