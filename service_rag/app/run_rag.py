@@ -2,7 +2,6 @@ from typing import Optional, List
 from fastapi import UploadFile
 import asyncio
 import time
-import base64
 import json
 from pathlib import Path
 from service_rag.app.embedding.embedding_data import EmbeddingData
@@ -24,7 +23,6 @@ class RagService:
         self.embedding_type = None
         self.upload_file = None
         self.file_name = None
-        self.file_name_without_extension = None
         self.target_file = None
         self.embeddings = None
         self.vector = None
@@ -33,6 +31,9 @@ class RagService:
         self.if_files = None
         self.doc_type = None
         self.mutil_files = []
+
+        self.image_binary_data = None
+        self.image_content_type = None
 
     @classmethod
     async def create(cls, upload_file: List[UploadFile]=None, embedding_type='questions', doc_type="document",
@@ -55,9 +56,15 @@ class RagService:
             self.if_files = False
             self.file_name = upload_file[0].filename or "unknown file"
             path_obj = Path(self.file_name)
-            self.file_name_without_extension = path_obj.stem
 
             try:
+                if upload_file[0].content_type and upload_file[0].content_type.startswith('image/'):
+                    content = await upload_file[0].read()
+                    self.image_binary_data = content
+                    self.image_content_type = upload_file[0].content_type
+                    # 重置文件指针，以便 DocumentLoader 可以读取
+                    await upload_file[0].seek(0)
+
                 document_loader = DocumentLoader(upload_file[0])
                 self.target_file = await document_loader.load()
                 document_loader.cleanup_temp_resources()
@@ -81,22 +88,21 @@ class RagService:
             print(f"🐯 {self.mutil_files} 🐯")
 
 
-    async def llava_get_content(self, prompt_sentence, image_rul, is_text_image):
+    async def llava_get_content(self, prompt_sentence, image_bytes, is_text_image):
         prompt_sentence = prompt_sentence.strip()
-        llaiva_prompt = ""
         if not is_text_image:
             if self.question:
-                llaiva_prompt = prompt_setting.pure_image_qa_template.format(question=self.question)
-                print(f"🦁 用户提问: {llaiva_prompt[:100]}...")
+                llava_prompt = prompt_setting.pure_image_qa_template.format(question=self.question)
+                print(f"🦁 用户提问: {self.question}")
             else:
-                llaiva_prompt = prompt_sentence
+                llava_prompt = prompt_sentence
                 print(f"🦁 用户未提问，自动生成图片描述")
         else:
-            llaiva_prompt = prompt_sentence
+            llava_prompt = prompt_sentence
 
         final_answer = await analyze_with_image(
-            image_base64_data_url=image_rul,
-            question=llaiva_prompt
+            image_bytes=image_bytes,
+            question=llava_prompt
         )
 
         if isinstance(final_answer, dict) and 'content' in final_answer:
@@ -114,12 +120,11 @@ class RagService:
         4. 使用专业图片问答模板生成最终回答
         """
         try:
-            # 0. 直接读取图片文件
-            upload_file = self.upload_file[0]
-            content = await upload_file.read()
-            base64_str = base64.b64encode(content).decode("utf-8")
-            image_data_url = f"data:{upload_file.content_type};base64,{base64_str}"
-            print(f"🦁 处理文件: {upload_file.filename}")
+            print(f"🦁 处理文件: {self.file_name}")
+            image_byte_content = self.image_binary_data
+            content_type = self.image_content_type
+            print(f"✅ 使用缓存的图片二进制数据: {len(image_byte_content)} 字节")
+            print(f"✅ 使用缓存的图片二进类型: {len(content_type)} 字节")
 
             # 纯图片
             is_pure_image = not self.target_file
@@ -128,7 +133,7 @@ class RagService:
                 # 获取纯图片分析结果
                 result_content = await self.llava_get_content(
                     prompt_setting.prue_image_analysis_template,
-                    image_data_url,
+                    image_byte_content,
                     False
                 )
                 print(f"📊 获取到纯图片分析结果，长度: {len(result_content)}")
@@ -195,7 +200,7 @@ class RagService:
                 # 检查用户是否输入提问信息
                 analyse_text_image = await self.llava_get_content(
                     prompt_setting.rag_image_analysis_template,
-                    image_data_url,
+                    image_byte_content,
                     True
                 )
 
@@ -319,10 +324,10 @@ class RagService:
                 else:
                     chunk.metadata = {'doc_type': doc_type}
             ids = self.vector.add_document_to_vector(chunks)
-            print(f" stored {self.file_name_without_extension} documents successfully")
+            print(f" stored {self.file_name} documents successfully")
             return ids
         except Exception as e:
-                print(f" stored {self.file_name_without_extension} documents failed: {str(e)}")
+                print(f" stored {self.file_name} documents failed: {str(e)}")
                 raise e
 
     def del_knowledge_item(self, ids):
@@ -377,7 +382,7 @@ class RagService:
 
     def get_chunk_doc(self, target_file, clear_chunks=False):
         try:
-            print(f"🚀 start split {self.file_name_without_extension}")
+            print(f"🚀 start split {self.file_name}")
             splitter_chunks = TextSplitter().split_document(target_file)
 
             if clear_chunks:

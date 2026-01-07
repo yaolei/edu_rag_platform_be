@@ -101,39 +101,12 @@ def connect_text_llm(question:str, prompt:str=""):
         }
 
 
-async def analyze_with_image(image_base64_data_url: str, question: str):
-    """
-    使用 LLaVA 模型进行图片分析
-    参数 image_base64_data_url: 格式为 "data:image/jpeg;base64,xxxx..." 的完整字符串
-    参数 question: 针对图片的问题
-    """
-    # 1. 从 Data URL 中提取并解码 Base64 图片数据
+async def analyze_with_image(image_bytes: bytes, question: str):
+
     try:
-        # 分割出 base64 部分
-        header, base64_str = image_base64_data_url.split(';base64,')
-        image_bytes = base64.b64decode(base64_str)
-
-        if len(image_bytes) == 0:
-            return {
-                "role": "assistant",
-                "content": "图片数据为空"
-            }
-
         original_size = len(image_bytes)
         print(f"🖼️ [图片模型] 接收到图片大小: {original_size / 1024:.1f}KB ({original_size}字节)")
-
-        if len(image_bytes) > 2 * 1024 * 1024:  # 2MB
-            print(f"⚠️  图片仍然过大: {len(image_bytes)}字节，进行应急压缩")
-            img = Image.open(BytesIO(image_bytes))
-            img.thumbnail((512, 512), Image.Resampling.LANCZOS)
-            if img.mode != 'RGB':
-                img = img.convert('RGB')
-            buffer = BytesIO()
-            img.save(buffer, format='JPEG', quality=40, optimize=True)
-            image_bytes = buffer.getvalue()
-
         image_array = list(image_bytes)
-
         if len(image_array) == 0:
             return {
                 "role": "assistant",
