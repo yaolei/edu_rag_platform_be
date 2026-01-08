@@ -1,21 +1,16 @@
-import requests, json, base64
-from io import BytesIO
-from PIL import Image
+import requests, json
 import time
 import asyncio
+from typing import List, Dict
 from service_rag.app.config.config import setting
 
-
-async def stream_llm_response(prompt: str):
+async def stream_llm_response(messages: List[Dict[str, str]]):
     """流式调用LLM - 直接转发SSE响应"""
     url = setting.CHAT_URL_TEMPLATE
     payload = {
         "model": "@cf/meta/llama-4-scout-17b-16e-instruct",
-        "messages": [{
-            "role": "user",
-            "content": prompt
-        }],
-        "max_tokens": 4000,
+        "messages": messages,
+        "max_tokens": 2000,
         "temperature": 0.7,
         "stream": True
     }
@@ -24,7 +19,7 @@ async def stream_llm_response(prompt: str):
         "Content-Type": "application/json",
         "Authorization": f"Bearer {setting.TOKEN_URL}"
     }
-
+    print(f"👌发送的问题组是{messages}")
     try:
         import aiohttp
         async with aiohttp.ClientSession() as session:
@@ -63,14 +58,13 @@ async def stream_llm_response(prompt: str):
 
 
 # only use for the intent model
-def connect_text_llm(question:str, prompt:str=""):
-    print(f"🎯传过来的问题是: {question} ")
+def connect_text_llm(question:str):
     url = setting.CHAT_URL_TEMPLATE
     payload = {
         "model": "@cf/meta/llama-4-scout-17b-16e-instruct",
         "messages": [{
         "role": "user",
-        "content": question +" "+prompt
+        "content": question
         }],
         "max_tokens": 2000,
         "temperature": 0.7,
@@ -101,7 +95,7 @@ def connect_text_llm(question:str, prompt:str=""):
         }
 
 
-async def analyze_with_image(image_bytes: bytes, question: str):
+async def analyze_with_image(image_bytes: bytes, question: str, messages: List[Dict[str, str]] = None):
 
     try:
         original_size = len(image_bytes)
@@ -112,7 +106,6 @@ async def analyze_with_image(image_bytes: bytes, question: str):
                 "role": "assistant",
                 "content": "图片处理失败：转换后的数据为空。"
             }
-
     except Exception as e:
         print(f"图片数据处理失败: {str(e)}")
         return {
@@ -120,12 +113,34 @@ async def analyze_with_image(image_bytes: bytes, question: str):
             "content": f"图片处理失败: {str(e)}"
         }
 
+    final_prompt = question
+    if not final_prompt and messages:
+        # 从messages中提取最后一条用户消息
+        for msg in reversed(messages):
+            if msg.get("role") == "user":
+                final_prompt = msg.get("content", "").strip()
+                break
+
+    if not final_prompt:
+        final_prompt = "请分析这张图片"
+
+    # 如果有历史消息，添加到提示词中
+    if messages and len(messages) > 1:
+        # 构建历史消息文本
+        history_text = "【对话历史】\n"
+        for msg in messages[:-1]:  # 不包含最后一条消息
+            role = "用户" if msg.get("role") == "user" else "助手"
+            content = msg.get("content", "")
+            history_text += f"{role}: {content}\n"
+
+        final_prompt = f"{history_text}\n【当前任务】\n{final_prompt}"
+
     # 2. 发送请求到API
     url = setting.CHAT_URL_IMAGE_TEMPLATE
 
     input_payload = {
         "image": image_array,
-        "prompt": question,
+        "prompt": final_prompt,
         "max_tokens": 512
     }
 
@@ -135,6 +150,7 @@ async def analyze_with_image(image_bytes: bytes, question: str):
     }
     start_time = time.time()
     try:
+        print(f"🖼️ 开始发送请求到 Cloudflare Workers......")
         response = requests.post(url, json=input_payload, headers=headers, timeout=60)
         request_time = time.time() - start_time
         print(f"🖼️ [图片模型] API请求耗时: {request_time:.2f}秒")
@@ -147,36 +163,18 @@ async def analyze_with_image(image_bytes: bytes, question: str):
             }
         # 解析成功响应
         body = response.json()
-        final_content = ""
-
-        # 提取响应内容
-        if isinstance(body, str):
-            final_content = body
-        elif isinstance(body, dict):
-            # 尝试从不同字段提取响应
-            if 'result' in body and body['result']:
-                result_data = body['result']
-                if isinstance(result_data, dict) and 'description' in result_data:
-                    final_content = result_data['description']
-                else:
-                    final_content = result_data
-            elif 'response' in body and body['response']:
-                final_content = body['response']
-            elif body.get('success') is True and 'result' in body:
-                final_content = body['result']
+        if isinstance(body, dict) and 'result' in body:
+            result = body['result']
+            if isinstance(result, dict) and 'description' in result:
+                final_content = result['description'].strip()
             else:
-                # 尝试查找有意义的字符串字段
-                for key, value in body.items():
-                    if isinstance(value, str) and value.strip() and len(value) > 10:
-                        final_content = value
-                        break
-                if not final_content:
-                    final_content = json.dumps(body, ensure_ascii=False)
-        elif isinstance(body, list) and len(body) > 0:
-            final_content = str(body[0])
+                final_content = str(result).strip()
         else:
-            final_content = str(body)
+            # 如果格式不符合预期，记录日志并返回错误
+            print(f"⚠️  [图片模型] 意外的响应格式: {body}")
+            final_content = "图片分析失败：API返回了意外的格式"
 
+        print(f"🖼️ [图片模型] 提取的内容长度: {len(final_content)}")
         return {
             "role": "assistant",
             "content": final_content

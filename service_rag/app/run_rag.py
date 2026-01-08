@@ -1,4 +1,4 @@
-from typing import Optional, List
+from typing import Optional, List, Dict
 from fastapi import UploadFile
 import asyncio
 import time
@@ -13,8 +13,7 @@ from service_rag.app.text_splitter.text_split import TextSplitter
 from service_rag.app.vector.vector_store import VectorStore
 from service_rag.app.llm_model.contect_llm import  connect_text_llm, analyze_with_image, stream_llm_response
 from service_rag.app.text_splitter.advanced_text_cleaner import AdvancedTextCleaner
-from service_rag.app.service.gen_util import switch_correct_prompt, build_simple_context
-
+from service_rag.app.service.gen_util import switch_correct_prompt, build_simple_context, prue_image_chunks
 
 class RagService:
     def __init__(self):
@@ -33,23 +32,44 @@ class RagService:
         self.mutil_files = []
 
         self.image_binary_data = None
-        self.image_content_type = None
+        self.conversation_id = None
+        self.messages = []
 
     @classmethod
     async def create(cls, upload_file: List[UploadFile]=None, embedding_type='questions', doc_type="document",
-                     question:Optional[str] = None, **kwargs):
+                                                             conversation_id: Optional[str] = None,
+                                                             messages: Optional[List[Dict]] = None, **kwargs):
         instance = cls()
-        await instance.initialize(upload_file, embedding_type, doc_type, question, **kwargs)
+        await instance.initialize(upload_file, embedding_type, doc_type, conversation_id=conversation_id,
+                                                                                      messages=messages,
+                                                                                      **kwargs)
         return instance
 
     async def initialize(self, upload_file: List[UploadFile]=None, embedding_type='questions', doc_type="document",
-                         question:Optional[str] = None, **kwargs):
+                         conversation_id: Optional[str] = None,
+                         messages: Optional[List[Dict]] = None, **kwargs):
         self.embedding_type = embedding_type
-        self.question = question
+
         self.upload_file = upload_file
         self.doc_type = doc_type
+
+        self.conversation_id = conversation_id  # 新增
+        self.messages = messages or []
+        self.question = ""
+        if self.messages:
+            for msg in reversed(self.messages):
+                if msg.get("role") == "user":
+                    self.question = msg.get("content", "").strip()
+                    break
+            if self.question:
+                print(f"🎯 从messages中提取的问题: {self.question}")
+
         self.embeddings = EmbeddingData(embedding_type=embedding_type)
         self.vector = VectorStore(embedding_function=self.embeddings)
+
+        if self.messages:
+            print(f"📚 接收到 {len(self.messages)} 条历史消息")
+
         if not upload_file:  # 无文件
             pass
         elif len(upload_file) == 1:
@@ -61,7 +81,6 @@ class RagService:
                 if upload_file[0].content_type and upload_file[0].content_type.startswith('image/'):
                     content = await upload_file[0].read()
                     self.image_binary_data = content
-                    self.image_content_type = upload_file[0].content_type
                     # 重置文件指针，以便 DocumentLoader 可以读取
                     await upload_file[0].seek(0)
 
@@ -90,6 +109,18 @@ class RagService:
 
     async def llava_get_content(self, prompt_sentence, image_bytes, is_text_image):
         prompt_sentence = prompt_sentence.strip()
+
+        if self.messages and len(self.messages) > 0:
+            history_text = ""
+            for msg in self.messages[-5:]:  # 只取最近5条消息
+                role = "用户" if msg.get("role") == "user" else "助手"
+                content = msg.get("content", "")
+                history_text += f"{role}: {content}\n"
+
+            enhanced_prompt = f"【对话历史】\n{history_text}\n【当前任务】\n"
+        else:
+            enhanced_prompt = ""
+
         if not is_text_image:
             if self.question:
                 llava_prompt = prompt_setting.pure_image_qa_template.format(question=self.question)
@@ -100,9 +131,15 @@ class RagService:
         else:
             llava_prompt = prompt_sentence
 
+        # 如果有历史记录，添加到提示词中
+        if self.messages and len(self.messages) > 0:
+            llava_prompt = enhanced_prompt + llava_prompt
+            print(f"🎯 使用上下文增强图片分析")
+
         final_answer = await analyze_with_image(
             image_bytes=image_bytes,
-            question=llava_prompt
+            question=llava_prompt,
+            messages=self.messages
         )
 
         if isinstance(final_answer, dict) and 'content' in final_answer:
@@ -122,9 +159,15 @@ class RagService:
         try:
             print(f"🦁 处理文件: {self.file_name}")
             image_byte_content = self.image_binary_data
-            content_type = self.image_content_type
             print(f"✅ 使用缓存的图片二进制数据: {len(image_byte_content)} 字节")
-            print(f"✅ 使用缓存的图片二进类型: {len(content_type)} 字节")
+
+            # 获取对话历史
+            history_str = ""
+            if self.messages:
+                for msg in self.messages:
+                    role = "用户" if msg.get("role") == "user" else "助手"
+                    content = msg.get("content", "")
+                    history_str += f"{role}: {content}\n"
 
             # 纯图片
             is_pure_image = not self.target_file
@@ -138,43 +181,26 @@ class RagService:
                 )
                 print(f"📊 获取到纯图片分析结果，长度: {len(result_content)}")
 
-                import re
+                if self.messages and len(self.messages) > 0:
+                    # 构建带上下文的提示词
+                    conversation_prompt = prompt_setting.image_conversation_template.replace(
+                        '{history}', history_str
+                    ).replace(
+                        '{image_analysis}', result_content
+                    ).replace(
+                        '{question}', self.question if self.question else "请描述这张图片"
+                    )
 
-                # 使用正则表达式按中文标点分割句子
-                sentences = re.split(r'([。！？；\.!?;])', result_content)
+                    # 使用新的提示词重新分析
+                    enhanced_result = await self.llava_get_content(
+                        conversation_prompt,
+                        image_byte_content,
+                        False
+                    )
+                    result_content = enhanced_result
+                    print(f"🎯 使用上下文增强分析，新长度: {len(result_content)}")
 
-                # 重新组合句子，保留标点
-                chunks = []
-                current_chunk = ""
-
-                for i in range(0, len(sentences), 2):
-                    if i + 1 < len(sentences):
-                        sentence = sentences[i] + sentences[i + 1]
-                    else:
-                        sentence = sentences[i]
-
-                    # 如果当前chunk为空或句子很短，直接添加
-                    if not current_chunk or len(sentence.strip()) < 10:
-                        current_chunk += sentence
-                    else:
-                        # 如果句子包含换行符，说明是段落分隔
-                        if '\n' in sentence:
-                            if current_chunk:
-                                chunks.append(current_chunk.strip())
-                            current_chunk = sentence
-                        # 如果句子较长，单独作为一个chunk
-                        elif len(sentence.strip()) > 30:
-                            if current_chunk:
-                                chunks.append(current_chunk.strip())
-                            chunks.append(sentence.strip())
-                            current_chunk = ""
-                        # 否则合并到当前chunk
-                        else:
-                            current_chunk += sentence
-
-                if current_chunk.strip():
-                    chunks.append(current_chunk.strip())
-
+                chunks = prue_image_chunks(result_content)
                 # 将字符串转换为流式返回 - 使用异步方式
                 import json
                 for i, chunk in enumerate(chunks):
@@ -203,6 +229,22 @@ class RagService:
                     image_byte_content,
                     True
                 )
+
+                if self.messages and len(self.messages) > 0:
+                    conversation_prompt = prompt_setting.image_conversation_template.replace(
+                        '{history}', history_str
+                    ).replace(
+                        '{image_analysis}', analyse_text_image
+                    ).replace(
+                        '{question}', self.question if self.question else "请分析图片内容"
+                    )
+
+                    enhanced_result = await self.llava_get_content(
+                        conversation_prompt,
+                        image_byte_content,
+                        True
+                    )
+                    analyse_text_image = enhanced_result
 
                 if not self.question or self.question.strip() == "":
                     print("🎯 没有用户问题，直接返回图片分析结果")
@@ -257,7 +299,9 @@ class RagService:
 
                             # 调用流式LLM
                             chunk_count = 0
-                            async for chunk in stream_llm_response(final_prompt_for_text_model):
+                            llm_messages = self.messages.copy() if self.messages else []
+                            llm_messages.append({"role": "user", "content": final_prompt_for_text_model})
+                            async for chunk in stream_llm_response(llm_messages):
                                 if chunk:
                                     chunk_count += 1
                                     if chunk_count % 10 == 0:  # 每10个chunk打印一次
@@ -358,7 +402,8 @@ class RagService:
         print(f"🔍 执行向量查询，问题: '{self.question}'")
 
         # 1. 使用LLM分析意图
-        doc_types = self.analyze_intent_with_llm(self.question)
+        intent_prompt = prompt_setting.intent_analysis_template.replace('{question}', self.question)
+        doc_types = self.analyze_intent_with_llm(intent_prompt)
 
         # 2. 如果有匹配的doc_type，进行过滤查询
         if doc_types and len(doc_types) > 0:
@@ -397,30 +442,50 @@ class RagService:
 
     async def stream_context_from_docs(self, documents):
         """流式生成上下文"""
+        history_str = ""
+        if self.messages:
+            for msg in self.messages:
+                role = "用户" if msg.get("role") == "user" else "助手"
+                content = msg.get("content", "")
+                history_str += f"{role}: {content}\n"
+
         if not documents:
+            # 没有知识库信息，使用 no_knowledge_template
             formatter_prompt = prompt_setting.no_knowledge_template.replace(
-                '{question}', self.question
+                '{question}', self.question if self.question else ""
             )
         else:
+            # 有知识库信息
             context_str = build_simple_context(documents)
-            formatter_prompt = prompt_setting.rag_template_pro.replace(
-                '{context}', context_str
-            ).replace(
-                '{question}', self.question
-            )
+
+            # 如果有历史记录，使用 rag_template_pro
+            if history_str:
+                formatter_prompt = prompt_setting.rag_template_pro.replace(
+                    '{history}', history_str
+                ).replace(
+                    '{context}', context_str
+                ).replace(
+                    '{question}', self.question if self.question else ""
+                )
+            else:
+                # 没有历史记录，使用 rag_template
+                formatter_prompt = prompt_setting.rag_template.replace(
+                    '{context}', context_str
+                ).replace(
+                    '{question}', self.question if self.question else ""
+                )
 
         print(f"🔄 开始流式生成，prompt长度: {len(formatter_prompt)}")
-
+        # 记录开始时间
+        start_time = time.time()
         try:
-            # 记录开始时间
-            start_time = time.time()
-
+            llm_messages = [
+                {"role": "user", "content": formatter_prompt}
+            ]
             # 调用流式LLM
-            async for chunk in stream_llm_response(formatter_prompt):
+            async for chunk in stream_llm_response(llm_messages):
                 if chunk:
                     yield chunk
-
-            # 发送结束信号
             yield "data: [DONE]\n\n"
 
             end_time = time.time()
@@ -444,7 +509,6 @@ class RagService:
                 pass
         except Exception as e:
             print(f"❌存储向量数据库失败 {str(e)}")
-
 
     def clear_data(self, chunks):
         all_rag_chunks = []
@@ -480,38 +544,35 @@ class RagService:
         使用LLM分析问题意图，返回可能的doc_type数组
         """
         try:
-            # 使用prompt.py中的意图分析模板
-            intent_prompt = prompt_setting.intent_analysis_template.replace('{question}', question)
+            print(f"🎯🎯🎯🎯🎯🎯🎯传过来的问题是: \n{question} 🎯🎯🎯🎯🎯🎯")
+            result = connect_text_llm(question)
 
-            # 直接传递字符串参数, 使用小型模型查询意图
-            result = connect_text_llm(intent_prompt)
-            # 处理返回结果
-            content_dict = {}
+            # 简化处理：直接提取content
             if isinstance(result, dict):
                 content = result.get('content', '')
-                if isinstance(content, dict):
-                    content_dict = content
-                elif isinstance(content, str):
-                    # 尝试解析字符串为字典
-                    import json
-                    try:
-                        content_dict = json.loads(content)
-                    except json.JSONDecodeError:
-                        # 如果不是JSON，尝试提取JSON
-                        import re
-                        json_match = re.search(r'\{.*\}', content, re.DOTALL)
-                        if json_match:
-                            try:
-                                content_dict = json.loads(json_match.group())
-                            except:
-                                pass
+            else:
+                content = str(result)
 
-            # 从content_dict中提取doc_types
-            if isinstance(content_dict, dict) and 'doc_types' in content_dict:
-                doc_types = content_dict['doc_types']
-                print(f"🎯 LLM意图分析结果: {doc_types}")
-                return doc_types
+            # 尝试解析JSON
+            import json
+            import re
 
+            # 清理content
+            content = content.strip()
+
+            # 提取JSON部分
+            json_match = re.search(r'\{.*\}', content, re.DOTALL)
+            if json_match:
+                try:
+                    json_str = json_match.group()
+                    content_dict = json.loads(json_str)
+                    doc_types = content_dict.get('doc_types', [])
+                    print(f"🎯 LLM意图分析结果: {doc_types}")
+                    return doc_types
+                except json.JSONDecodeError:
+                    print(f"❌ JSON解析失败，内容: {content[:100]}...")
+
+            print(f"⚠️ 未能解析doc_types，返回空数组")
             return []
 
         except Exception as e:

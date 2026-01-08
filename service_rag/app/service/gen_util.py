@@ -1,5 +1,7 @@
 from service_rag.app.prompt.prompt import prompt_setting
-
+import re
+import json
+import asyncio
 def switch_correct_prompt(question, doc_type, image_description, relevant_docs, ocr_text):
     if doc_type == "resume":
         final_prompt_for_text_model = prompt_setting.rag_image_qa_template.format(
@@ -59,3 +61,39 @@ def build_simple_context(documents):
             return ""
 
         return "\n\n---\n\n".join(context_parts)
+
+def prue_image_chunks(result_content):
+    sentences = re.split(r'([。！？；\.!?;])', result_content)
+    chunks = []
+    current_chunk = ""
+    for i in range(0, len(sentences), 2):
+        if i + 1 < len(sentences):
+            sentence = sentences[i] + sentences[i + 1]
+        else:
+            sentence = sentences[i]
+
+        # 如果当前chunk为空或句子很短，直接添加
+        if not current_chunk or len(sentence.strip()) < 10:
+            current_chunk += sentence
+        else:
+            # 如果句子包含换行符，说明是段落分隔
+            if '\n' in sentence:
+                if current_chunk:
+                    chunks.append(current_chunk.strip())
+                current_chunk = sentence
+            # 如果句子较长，单独作为一个chunk
+            elif len(sentence.strip()) > 30:
+                if current_chunk:
+                    chunks.append(current_chunk.strip())
+                chunks.append(sentence.strip())
+                current_chunk = ""
+            # 否则合并到当前chunk
+            else:
+                current_chunk += sentence
+
+    if current_chunk.strip():
+        chunks.append(current_chunk.strip())
+
+    return chunks
+
+
