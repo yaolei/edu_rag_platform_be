@@ -8,7 +8,7 @@ async def stream_llm_response(messages: List[Dict[str, str]]):
     """流式调用LLM - 直接转发SSE响应"""
     url = setting.CHAT_URL_TEMPLATE
     payload = {
-        "model": "@cf/meta/llama-4-scout-17b-16e-instruct",
+        "model": "@cf/meta/llama-3.1-8b-instruct-fast",
         "messages": messages,
         "max_tokens": 2000,
         "temperature": 0.7,

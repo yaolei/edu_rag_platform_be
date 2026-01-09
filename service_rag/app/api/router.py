@@ -48,11 +48,6 @@ async def chat_by_file_knowledge_stream(
         messages_json: Optional[str] = Form(None)
 ):
     try:
-        # 打印接收到的数据
-        print(f"📷 OCR处理 - 问题: {questions}")
-        print(f"📷 OCR处理 - conversation_id: {conversation_id}")
-        print(f"📷 OCR处理 - 文件数: {len(files)}")
-
         # 解析 messages_json
         messages = []
         if messages_json:

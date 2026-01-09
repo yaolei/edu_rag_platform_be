@@ -89,7 +89,6 @@ class RagService:
                 document_loader = DocumentLoader(upload_file[0])
                 self.target_file = await document_loader.load()
                 document_loader.cleanup_temp_resources()
-                print(f"🚀🚀🚀🚀{ self.target_file} 🚀🚀")
                 if self.target_file and self.target_file[0].page_content == '':
                     self.target_file = None
                 else:
@@ -297,7 +296,7 @@ class RagService:
 
                             # 记录开始时间
                             start_time = time.time()
-                            print(f"🔄 开始流式生成，prompt长度: {len(final_prompt_for_text_model)}")
+                            print(f"🔄 图片文模式:开始流式生成，prompt长度: {len(final_prompt_for_text_model)}")
 
                             # 调用流式LLM
                             chunk_count = 0
@@ -497,53 +496,91 @@ class RagService:
             raise e
 
     async def stream_context_from_docs(self, documents):
-        """流式生成上下文"""
-        history_str = ""
-        if self.messages:
-            for msg in self.messages:
-                role = "用户" if msg.get("role") == "user" else "助手"
-                content = msg.get("content", "")
-                history_str += f"{role}: {content}\n"
+        """流式生成上下文 - 正确的多轮对话处理"""
+        # 构建消息数组
+        llm_messages = []
 
-        if not documents:
-            # 没有知识库信息，使用 no_knowledge_template
-            formatter_prompt = prompt_setting.no_knowledge_template.replace(
-                '{question}', self.question if self.question else ""
-            )
-        else:
-            # 有知识库信息
+        # 1. 如果有知识库信息，作为system消息
+        if documents:
             context_str = build_simple_context(documents)
+            system_content =  prompt_setting.knowledge_history_template.format(context_str=context_str)
+            llm_messages.append({
+                "role": "system",
+                "content": system_content
+            })
 
-            # 如果有历史记录，使用 rag_template_pro
-            if history_str:
-                formatter_prompt = prompt_setting.rag_template_pro.replace(
-                    '{history}', history_str
-                ).replace(
-                    '{context}', context_str
-                ).replace(
-                    '{question}', self.question if self.question else ""
-                )
-            else:
-                # 没有历史记录，使用 rag_template
-                formatter_prompt = prompt_setting.rag_template.replace(
-                    '{context}', context_str
-                ).replace(
-                    '{question}', self.question if self.question else ""
-                )
+        # 2. 检查是否是指代图片的问题
+        is_image_reference = False
+        image_reference_text = ""
 
-        print(f"🔄 开始流式生成，prompt长度: {len(formatter_prompt)}")
+        if self.messages and len(self.messages) >= 2:
+            current_question = self.question or ""
+            # 检查是否包含图片相关的指代词
+            image_keywords = ["图", "图片", "照片", "截图", "画面", "图像", "photo", "image"]
+            has_image_keyword = any(keyword in current_question for keyword in image_keywords)
+
+            if has_image_keyword:
+                # 查找最近的图片描述
+                for i in range(len(self.messages) - 2, -1, -1):  # 从倒数第二条往前找
+                    msg = self.messages[i]
+                    if isinstance(msg, dict):
+                        # 检查是否是assistant的回复且包含图片描述特征
+                        content = msg.get("content", "")
+                        if ("这是一张" in content or "照片" in content or
+                                "场景" in content or "画面" in content):
+                            is_image_reference = True
+                            image_reference_text = content
+                            break
+
+        # 2. 直接传递原始对话历史（前端已限制数量）
+        if self.messages:
+            # 确保格式正确
+            for msg in self.messages:
+                normalized_msg = {}
+                # 转换role
+                if "type" in msg:
+                    normalized_msg["role"] = "user" if msg["type"] == "user" else "assistant"
+                elif "role" in msg:
+                    normalized_msg["role"] = msg["role"]
+                else:
+                    normalized_msg["role"] = "user"  # 默认
+
+                # 确保content存在
+                if "content" in msg:
+                    normalized_msg["content"] = msg["content"]
+                elif "text" in msg:
+                    normalized_msg["content"] = msg["text"]
+                else:
+                    normalized_msg["content"] = ""
+
+                # 只添加有内容的message
+                if normalized_msg["content"].strip():
+                    llm_messages.append(normalized_msg)
+
+        if is_image_reference and image_reference_text:
+            # 在最后一条用户消息后添加系统提示
+            for i in range(len(llm_messages) - 1, -1, -1):
+                if llm_messages[i].get("role") == "user":
+                    # 修改当前用户问题，明确引用图片描述
+                    original_content = llm_messages[i]["content"]
+                    enhanced_content = f"""{original_content}
+
+                （提示：根据之前的对话，图片描述为：{image_reference_text[:200]}...请基于这个图片描述回答。）"""
+                    llm_messages[i]["content"] = enhanced_content
+                    break
+
+
+        print(f"🔄 文本模式:开始流式生成，消息总数: {len(llm_messages)}")
+
         # 记录开始时间
         start_time = time.time()
         try:
-            llm_messages = [
-                {"role": "user", "content": formatter_prompt}
-            ]
-            # 调用流式LLM
+            # 调用流式LLM，传递正确的messages数组
             async for chunk in stream_llm_response(llm_messages):
                 if chunk:
                     yield chunk
-            yield "data: [DONE]\n\n"
 
+            yield "data: [DONE]\n\n"
             end_time = time.time()
             print(f"✅ 流式生成完成，耗时: {end_time - start_time:.2f}秒")
 
@@ -552,6 +589,7 @@ class RagService:
             error_data = json.dumps({"error": str(e)})
             yield f"data: {error_data}\n\n"
             yield "data: [DONE]\n\n"
+
 
     async def upload_infor_to_vector(self):
         try:
@@ -600,7 +638,6 @@ class RagService:
         使用LLM分析问题意图，返回可能的doc_type数组
         """
         try:
-            print(f"🎯🎯🎯🎯🎯🎯🎯传过来的问题是: \n{question} 🎯🎯🎯🎯🎯🎯")
             result = connect_text_llm(question)
 
             # 简化处理：直接提取content
