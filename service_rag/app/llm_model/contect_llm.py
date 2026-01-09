@@ -14,7 +14,7 @@ async def stream_llm_response(messages: List[Dict[str, str]]):
         "temperature": 0.7,
         "stream": True
     }
-
+    print(f"✅ 发送的数据是 {messages}")
     headers = {
         "Content-Type": "application/json",
         "Authorization": f"Bearer {setting.TOKEN_URL}"

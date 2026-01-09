@@ -42,7 +42,6 @@ async def chat_stream(
 
 @router.post('/chat_by_files_stream')
 async def chat_by_file_knowledge_stream(
-        questions: Optional[str] = Form(None),
         files: List[UploadFile] = File([]),
         conversation_id: Optional[str] = Form(None),
         messages_json: Optional[str] = Form(None)
@@ -60,7 +59,6 @@ async def chat_by_file_knowledge_stream(
 
         # 直接传递所有参数
         return await svc.chat_with_knowledge_file_stream(
-            question=questions,
             files=files,
             messages=messages,
             conversation_id=conversation_id

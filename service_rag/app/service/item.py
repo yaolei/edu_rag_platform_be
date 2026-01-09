@@ -91,13 +91,12 @@ async def dev_env_test_api():
     rag.dev_env_test_api()
 
 
-async def chat_with_knowledge_file_stream(question: str, files: List[UploadFile],
-                                          messages: List[Dict[str, str]], conversation_id: str = None):
+async def chat_with_knowledge_file_stream( files: List[UploadFile],
+                                          messages=None, conversation_id: str = None):
     try:
         rag = await RagService.create(
             embedding_type="questions",
             upload_file=files,
-            question=question,
             conversation_id=conversation_id,
             messages=messages  # 使用 messages 参数
         )

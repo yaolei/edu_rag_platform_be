@@ -108,39 +108,285 @@ class RagService:
             print(f"🐯 {self.mutil_files} 🐯")
 
 
-    async def llava_get_content(self, prompt_sentence, image_bytes, is_text_image):
+    # async def llava_get_content(self, prompt_sentence, image_bytes, is_text_image):
+    #     prompt_sentence = prompt_sentence.strip()
+    #
+    #     if self.messages and len(self.messages) > 0:
+    #         history_text = ""
+    #         for msg in self.messages[-5:]:  # 只取最近5条消息
+    #             role = "用户" if msg.get("role") == "user" else "助手"
+    #             content = msg.get("content", "")
+    #             history_text += f"{role}: {content}\n"
+    #
+    #         enhanced_prompt = f"【对话历史】\n{history_text}\n【当前任务】\n"
+    #     else:
+    #         enhanced_prompt = ""
+    #
+    #     if not is_text_image:
+    #         if self.question:
+    #             llava_prompt = prompt_setting.pure_image_qa_template.format(question=self.question)
+    #             print(f"🦁 用户提问: {llava_prompt}")
+    #         else:
+    #             llava_prompt = prompt_sentence
+    #             print(f"🦁 用户未提问，自动生成图片描述{llava_prompt}")
+    #     else:
+    #         llava_prompt = prompt_sentence
+    #         print(f"🦁 原始提示词，自动生成图片描述{llava_prompt}")
+    #
+    #     # 如果有历史记录，添加到提示词中
+    #     if self.messages and len(self.messages) > 0:
+    #         llava_prompt = enhanced_prompt + llava_prompt
+    #         print(f"🎯 使用上下文增强图片分析")
+    #
+    #     final_answer = await analyze_with_image(
+    #         image_bytes=image_bytes,
+    #         question=llava_prompt,
+    #         messages=self.messages
+    #     )
+    #
+    #     if isinstance(final_answer, dict) and 'content' in final_answer:
+    #         result_content = final_answer['content'].strip()
+    #     else:
+    #         result_content = str(final_answer).strip()
+    #
+    #     return result_content
+
+    # async def analyse_image_information(self):
+    #     """
+    #     1. 使用专业提示词让LLaVA分析图片
+    #     2. 分析用户问题意图
+    #     3. 根据意图决定是否查询知识库
+    #     4. 使用专业图片问答模板生成最终回答
+    #     """
+    #     try:
+    #         print(f"🦁 处理文件: {self.file_name}")
+    #         image_byte_content = self.image_binary_data
+    #         print(f"✅ 使用缓存的图片二进制数据: {len(image_byte_content)} 字节")
+    #
+    #         # 获取对话历史
+    #         history_str = ""
+    #         if self.messages:
+    #             for msg in self.messages:
+    #                 role = "用户" if msg.get("role") == "user" else "助手"
+    #                 content = msg.get("content", "")
+    #                 history_str += f"{role}: {content}\n"
+    #
+    #         # 纯图片
+    #         is_pure_image = not self.target_file
+    #         if is_pure_image:
+    #             print("🎯 进入纯图片分析分支")
+    #             # 获取纯图片分析结果
+    #             result_content = await self.llava_get_content(
+    #                 prompt_setting.prue_image_analysis_template,
+    #                 image_byte_content,
+    #                 False
+    #             )
+    #             print(f"📊 获取到纯图片分析结果，长度: {len(result_content)}")
+    #
+    #             if self.messages and len(self.messages) > 0:
+    #                 # 构建带上下文的提示词
+    #                 conversation_prompt = prompt_setting.image_conversation_template.replace(
+    #                     '{history}', history_str
+    #                 ).replace(
+    #                     '{image_analysis}', result_content
+    #                 ).replace(
+    #                     '{question}', self.question if self.question else "请描述这张图片"
+    #                 )
+    #
+    #                 # 使用新的提示词重新分析
+    #                 enhanced_result = await self.llava_get_content(
+    #                     conversation_prompt,
+    #                     image_byte_content,
+    #                     False
+    #                 )
+    #                 result_content = enhanced_result
+    #                 print(f"🎯 使用上下文增强分析，新长度: {len(result_content)}")
+    #
+    #             chunks = prue_image_chunks(result_content)
+    #             # 将字符串转换为流式返回 - 使用异步方式
+    #             import json
+    #             for i, chunk in enumerate(chunks):
+    #                 if not chunk.strip():
+    #                     continue
+    #
+    #                 data = {
+    #                     "choices": [{"delta": {"content": chunk + " "}}]
+    #                 }
+    #                 yield f"data: {json.dumps(data)}\n\n"
+    #
+    #                 # 根据chunk长度动态调整延迟
+    #                 delay = min(0.15, max(0.05, len(chunk) / 300))
+    #                 await asyncio.sleep(delay)
+    #
+    #             yield "data: [DONE]\n\n"
+    #             return
+    #
+    #         else:
+    #             # ========== 情况1：图文处理 ==========
+    #             print(f"🦁 开始分析图像信息，问题: {self.question} 🦁")
+    #
+    #             # 检查用户是否输入提问信息
+    #             analyse_text_image = await self.llava_get_content(
+    #                 prompt_setting.rag_image_analysis_template,
+    #                 image_byte_content,
+    #                 True
+    #             )
+    #
+    #             if self.messages and len(self.messages) > 0:
+    #                 conversation_prompt = prompt_setting.image_conversation_template.replace(
+    #                     '{history}', history_str
+    #                 ).replace(
+    #                     '{image_analysis}', analyse_text_image
+    #                 ).replace(
+    #                     '{question}', self.question if self.question else "请分析图片内容"
+    #                 )
+    #
+    #                 enhanced_result = await self.llava_get_content(
+    #                     conversation_prompt,
+    #                     image_byte_content,
+    #                     True
+    #                 )
+    #                 analyse_text_image = enhanced_result
+    #
+    #             if not self.question or self.question.strip() == "":
+    #                 print("🎯 没有用户问题，直接返回图片分析结果")
+    #                 # 将字符串转换为流式返回
+    #                 import json
+    #                 chunk_size = 50
+    #                 total_chunks = (len(analyse_text_image) + chunk_size - 1) // chunk_size
+    #
+    #                 for i in range(0, len(analyse_text_image), chunk_size):
+    #                     chunk = analyse_text_image[i:i + chunk_size]
+    #                     data = {
+    #                         "choices": [{"delta": {"content": chunk}}]
+    #                     }
+    #                     print(f"📤 发送第 {i // chunk_size + 1}/{total_chunks} 个 chunk，长度: {len(chunk)}")
+    #                     yield f"data: {json.dumps(data)}\n\n"
+    #                     await asyncio.sleep(0.01)
+    #
+    #                 yield "data: [DONE]\n\n"
+    #
+    #             else:
+    #                 print(f"🎯 有用户问题，进行意图分析和知识库查询")
+    #                 image_description = analyse_text_image
+    #                 ocr_text = self.target_file[0].page_content
+    #                 intent_analysis_prompt = prompt_setting.image_intent_prompt.format(
+    #                     image_description=image_description,
+    #                     ocr_text=ocr_text
+    #                 )
+    #                 doc_types = self.analyze_intent_with_llm(intent_analysis_prompt)
+    #                 print(f"🈶 问题的图文类型结果是: {doc_types}")
+    #
+    #                 if len(doc_types) > 0:
+    #                     print(f"🈶 知识库包含问题类型，开始进行知识库查询")
+    #                     relevant_docs = self.vector.query_by_question_vector_with_filter(
+    #                         question_vector=self.question,
+    #                         doc_types=doc_types,
+    #                         top_k=5
+    #                     )
+    #
+    #                     if len(relevant_docs) > 0:
+    #                         print(f"🎯 知识库有相关信息，开始智能融合知识库信息和用户问题")
+    #                         final_prompt_for_text_model = switch_correct_prompt(
+    #                             self.question,
+    #                             doc_types[0],
+    #                             image_description,
+    #                             relevant_docs,
+    #                             ocr_text
+    #                         )
+    #
+    #                         # 记录开始时间
+    #                         start_time = time.time()
+    #                         print(f"🔄 图片文模式:开始流式生成，prompt长度: {len(final_prompt_for_text_model)}")
+    #
+    #                         # 调用流式LLM
+    #                         chunk_count = 0
+    #                         llm_messages = self.messages.copy() if self.messages else []
+    #                         llm_messages.append({"role": "user", "content": final_prompt_for_text_model})
+    #                         async for chunk in stream_llm_response(llm_messages):
+    #                             if chunk:
+    #                                 chunk_count += 1
+    #                                 if chunk_count % 10 == 0:  # 每10个chunk打印一次
+    #                                     print(f"📤 流式LLM第 {chunk_count} 个 chunk")
+    #                                 yield chunk
+    #
+    #                         # 发送结束信号
+    #                         yield "data: [DONE]\n\n"
+    #                         end_time = time.time()
+    #                         print(f"✅ 流式生成完成，共 {chunk_count} 个 chunk，耗时: {end_time - start_time:.2f}秒")
+    #
+    #                     else:
+    #                         print(f"🎯 知识库没有相关信息，直接返回图片分析结果")
+    #                         # 将字符串转换为流式返回
+    #                         import json
+    #                         chunk_size = 50
+    #                         total_chunks = (len(analyse_text_image) + chunk_size - 1) // chunk_size
+    #
+    #                         for i in range(0, len(analyse_text_image), chunk_size):
+    #                             chunk = analyse_text_image[i:i + chunk_size]
+    #                             data = {
+    #                                 "choices": [{"delta": {"content": chunk}}]
+    #                             }
+    #                             print(f"📤 发送第 {i // chunk_size + 1}/{total_chunks} 个 chunk，长度: {len(chunk)}")
+    #                             yield f"data: {json.dumps(data)}\n\n"
+    #                             await asyncio.sleep(0.01)
+    #
+    #                         yield "data: [DONE]\n\n"
+    #
+    #                 else:
+    #                     print(f"🎯 无匹配文档类型，返回图片分析结果")
+    #                     # 将字符串转换为流式返回
+    #                     import json
+    #                     chunk_size = 50
+    #                     total_chunks = (len(analyse_text_image) + chunk_size - 1) // chunk_size
+    #
+    #                     for i in range(0, len(analyse_text_image), chunk_size):
+    #                         chunk = analyse_text_image[i:i + chunk_size]
+    #                         data = {
+    #                             "choices": [{"delta": {"content": chunk}}]
+    #                         }
+    #                         print(f"📤 发送第 {i // chunk_size + 1}/{total_chunks} 个 chunk，长度: {len(chunk)}")
+    #                         yield f"data: {json.dumps(data)}\n\n"
+    #                         await asyncio.sleep(0.01)
+    #
+    #                     yield "data: [DONE]\n\n"
+    #
+    #     except Exception as e:
+    #         import json
+    #         print(f"❌ 图片分析异常: {e}")
+    #         import traceback
+    #         traceback.print_exc()
+    #         error_data = json.dumps({"error": str(e)})
+    #         yield f"data: {error_data}\n\n"
+    #         yield "data: [DONE]\n\n"
+
+    async def llava_get_content(self, prompt_sentence, image_bytes, is_text_image, user_question=""):
+        """获取LLaVA分析结果"""
         prompt_sentence = prompt_sentence.strip()
-
-        if self.messages and len(self.messages) > 0:
-            history_text = ""
-            for msg in self.messages[-5:]:  # 只取最近5条消息
-                role = "用户" if msg.get("role") == "user" else "助手"
-                content = msg.get("content", "")
-                history_text += f"{role}: {content}\n"
-
-            enhanced_prompt = f"【对话历史】\n{history_text}\n【当前任务】\n"
-        else:
-            enhanced_prompt = ""
+        print(f"🌛 is_text_image: {is_text_image}")
+        print(f"🌛 用户问题: {user_question}")
 
         if not is_text_image:
-            if self.question:
-                llava_prompt = prompt_setting.pure_image_qa_template.format(question=self.question)
-                print(f"🦁 用户提问: {self.question}")
+            # 纯图片模式
+            if user_question and user_question.strip():
+                # 有用户提问，使用问答模板
+                llava_prompt = prompt_setting.pure_image_qa_template.format(question=user_question)
+                print(f"🦁 纯图片带问题提问模式")
             else:
+                # 没有用户提问，使用描述模板
                 llava_prompt = prompt_sentence
-                print(f"🦁 用户未提问，自动生成图片描述")
+                print(f"🦁 纯图片描述模式")
         else:
+            # 图文混合模式 - 直接使用传入的提示词
             llava_prompt = prompt_sentence
+            print(f"🦁 图文混合分析模式")
 
-        # 如果有历史记录，添加到提示词中
-        if self.messages and len(self.messages) > 0:
-            llava_prompt = enhanced_prompt + llava_prompt
-            print(f"🎯 使用上下文增强图片分析")
+        print(f"🌛 发送给LLaVA的提示词长度: {len(llava_prompt)}")
 
         final_answer = await analyze_with_image(
             image_bytes=image_bytes,
             question=llava_prompt,
-            messages=self.messages
+            messages=[]  # 图片对话不使用历史消息
         )
 
         if isinstance(final_answer, dict) and 'content' in final_answer:
@@ -148,210 +394,335 @@ class RagService:
         else:
             result_content = str(final_answer).strip()
 
+        print(f"🌛 LLaVA返回结果长度: {len(result_content)}")
         return result_content
+
+
+    # async def analyse_image_information(self):
+    #     """
+    #     分析图片信息 - 图片对话独立处理
+    #     """
+    #     try:
+    #         image_byte_content = self.image_binary_data
+    #         print(f"✅ 使用缓存的图片二进制数据: {len(image_byte_content)} 字节")
+    #         # 获取最后一个用户消息（如果有）
+    #         user_question = ""
+    #         if self.messages:
+    #             for msg in reversed(self.messages):
+    #                 if msg.get("role") == "user":
+    #                     user_question = msg.get("content", "").strip()
+    #                     break
+    #
+    #         # 纯图片
+    #         is_pure_image = not self.target_file
+    #         if is_pure_image:
+    #             print("🎯 进入纯图片分析分支")
+    #             # 获取纯图片分析结果
+    #             result_content = await self.llava_get_content(
+    #                 prompt_setting.prue_image_analysis_template,
+    #                 image_byte_content,
+    #                 False,  # 不是图文混合
+    #                 user_question  # 传递用户提问
+    #             )
+    #
+    #             # 将结果流式返回
+    #             chunks = prue_image_chunks(result_content)
+    #             for i, chunk in enumerate(chunks):
+    #                 if not chunk.strip():
+    #                     continue
+    #
+    #                 data = {
+    #                     "choices": [{"delta": {"content": chunk + " "}}]
+    #                 }
+    #                 yield f"data: {json.dumps(data)}\n\n"
+    #
+    #                 # 根据chunk长度动态调整延迟
+    #                 delay = min(0.15, max(0.05, len(chunk) / 300))
+    #                 await asyncio.sleep(delay)
+    #
+    #             yield "data: [DONE]\n\n"
+    #             return
+    #
+    #         else:
+    #             # ========== 情况1：图文处理 ==========
+    #             print(f"🦁 开始分析图文信息")
+    #
+    #             # 获取图文分析结果
+    #             analyse_text_image = await self.llava_get_content(
+    #                 prompt_setting.rag_image_analysis_template,
+    #                 image_byte_content,
+    #                 True,
+    #                 user_question
+    #             )
+    #
+    #             if not self.question or self.question.strip() == "":
+    #                 print("🎯 没有用户问题，直接返回图片分析结果")
+    #                 # 将字符串转换为流式返回
+    #                 chunk_size = 50
+    #                 total_chunks = (len(analyse_text_image) + chunk_size - 1) // chunk_size
+    #
+    #                 for i in range(0, len(analyse_text_image), chunk_size):
+    #                     chunk = analyse_text_image[i:i + chunk_size]
+    #                     data = {
+    #                         "choices": [{"delta": {"content": chunk}}]
+    #                     }
+    #                     yield f"data: {json.dumps(data)}\n\n"
+    #                     await asyncio.sleep(0.01)
+    #
+    #                 yield "data: [DONE]\n\n"
+    #
+    #             else:
+    #                 print(f"🎯 有用户问题，进行意图分析和知识库查询")
+    #                 image_description = analyse_text_image
+    #                 ocr_text = self.target_file[0].page_content
+    #                 intent_analysis_prompt = prompt_setting.image_intent_prompt.format(
+    #                     image_description=image_description,
+    #                     ocr_text=ocr_text
+    #                 )
+    #                 doc_types = self.analyze_intent_with_llm(intent_analysis_prompt)
+    #                 print(f"🈶 问题的图文类型结果是: {doc_types}")
+    #
+    #                 if len(doc_types) > 0:
+    #                     print(f"🈶 知识库包含问题类型，开始进行知识库查询")
+    #                     relevant_docs = self.vector.query_by_question_vector_with_filter(
+    #                         question_vector=self.question,
+    #                         doc_types=doc_types,
+    #                         top_k=5
+    #                     )
+    #
+    #                     if len(relevant_docs) > 0:
+    #                         print(f"🎯 知识库有相关信息，开始智能融合知识库信息和用户问题")
+    #                         final_prompt_for_text_model = switch_correct_prompt(
+    #                             self.question,
+    #                             doc_types[0],
+    #                             image_description,
+    #                             relevant_docs,
+    #                             ocr_text
+    #                         )
+    #
+    #                         # 记录开始时间
+    #                         start_time = time.time()
+    #                         print(f"🔄 图片文模式:开始流式生成，prompt长度: {len(final_prompt_for_text_model)}")
+    #
+    #                         # 调用流式LLM - 图片对话不使用历史消息
+    #                         chunk_count = 0
+    #                         llm_messages = [{"role": "user", "content": final_prompt_for_text_model}]
+    #                         async for chunk in stream_llm_response(llm_messages):
+    #                             if chunk:
+    #                                 chunk_count += 1
+    #                                 if chunk_count % 10 == 0:  # 每10个chunk打印一次
+    #                                     print(f"📤 流式LLM第 {chunk_count} 个 chunk")
+    #                                 yield chunk
+    #
+    #                         # 发送结束信号
+    #                         yield "data: [DONE]\n\n"
+    #                         end_time = time.time()
+    #                         print(f"✅ 流式生成完成，共 {chunk_count} 个 chunk，耗时: {end_time - start_time:.2f}秒")
+    #
+    #                     else:
+    #                         print(f"🎯 知识库没有相关信息，返回图片分析结果")
+    #                         # 将图片分析结果流式返回
+    #                         chunk_size = 50
+    #                         total_chunks = (len(analyse_text_image) + chunk_size - 1) // chunk_size
+    #
+    #                         for i in range(0, len(analyse_text_image), chunk_size):
+    #                             chunk = analyse_text_image[i:i + chunk_size]
+    #                             data = {
+    #                                 "choices": [{"delta": {"content": chunk}}]
+    #                             }
+    #                             yield f"data: {json.dumps(data)}\n\n"
+    #                             await asyncio.sleep(0.01)
+    #
+    #                         yield "data: [DONE]\n\n"
+    #
+    #                 else:
+    #                     print(f"🎯 无匹配文档类型，返回图片分析结果")
+    #                     # 将图片分析结果流式返回
+    #                     chunk_size = 50
+    #                     total_chunks = (len(analyse_text_image) + chunk_size - 1) // chunk_size
+    #
+    #                     for i in range(0, len(analyse_text_image), chunk_size):
+    #                         chunk = analyse_text_image[i:i + chunk_size]
+    #                         data = {
+    #                             "choices": [{"delta": {"content": chunk}}]
+    #                         }
+    #                         yield f"data: {json.dumps(data)}\n\n"
+    #                         await asyncio.sleep(0.01)
+    #
+    #                     yield "data: [DONE]\n\n"
+    #
+    #     except Exception as e:
+    #         print(f"❌ 图片分析异常: {e}")
+    #         import traceback
+    #         traceback.print_exc()
+    #         error_data = json.dumps({"error": str(e)})
+    #         yield f"data: {error_data}\n\n"
+    #         yield "data: [DONE]\n\n"
 
     async def analyse_image_information(self):
         """
-        1. 使用专业提示词让LLaVA分析图片
-        2. 分析用户问题意图
-        3. 根据意图决定是否查询知识库
-        4. 使用专业图片问答模板生成最终回答
+        分析图片信息 - 统一使用message数组模式
         """
         try:
-            print(f"🦁 处理文件: {self.file_name}")
             image_byte_content = self.image_binary_data
             print(f"✅ 使用缓存的图片二进制数据: {len(image_byte_content)} 字节")
 
-            # 获取对话历史
-            history_str = ""
+            # 获取最后一个用户消息（如果有）
+            user_question = ""
             if self.messages:
-                for msg in self.messages:
-                    role = "用户" if msg.get("role") == "user" else "助手"
-                    content = msg.get("content", "")
-                    history_str += f"{role}: {content}\n"
+                for msg in reversed(self.messages):
+                    if msg.get("role") == "user":
+                        user_question = msg.get("content", "").strip()
+                        break
+
+            print(f"🌛 用户问题: '{user_question}'")
 
             # 纯图片
             is_pure_image = not self.target_file
             if is_pure_image:
                 print("🎯 进入纯图片分析分支")
-                # 获取纯图片分析结果
-                result_content = await self.llava_get_content(
-                    prompt_setting.prue_image_analysis_template,
-                    image_byte_content,
-                    False
-                )
-                print(f"📊 获取到纯图片分析结果，长度: {len(result_content)}")
 
-                if self.messages and len(self.messages) > 0:
-                    # 构建带上下文的提示词
-                    conversation_prompt = prompt_setting.image_conversation_template.replace(
-                        '{history}', history_str
-                    ).replace(
-                        '{image_analysis}', result_content
-                    ).replace(
-                        '{question}', self.question if self.question else "请描述这张图片"
-                    )
-
-                    # 使用新的提示词重新分析
-                    enhanced_result = await self.llava_get_content(
-                        conversation_prompt,
+                # 情况1: 无用户提问 - 直接返回图片描述
+                if not user_question or user_question.strip() == "":
+                    print("🎯 纯图片无提问，直接返回描述")
+                    result_content = await self.llava_get_content(
+                        prompt_setting.prue_image_analysis_template,
                         image_byte_content,
-                        False
-                    )
-                    result_content = enhanced_result
-                    print(f"🎯 使用上下文增强分析，新长度: {len(result_content)}")
-
-                chunks = prue_image_chunks(result_content)
-                # 将字符串转换为流式返回 - 使用异步方式
-                import json
-                for i, chunk in enumerate(chunks):
-                    if not chunk.strip():
-                        continue
-
-                    data = {
-                        "choices": [{"delta": {"content": chunk + " "}}]
-                    }
-                    yield f"data: {json.dumps(data)}\n\n"
-
-                    # 根据chunk长度动态调整延迟
-                    delay = min(0.15, max(0.05, len(chunk) / 300))
-                    await asyncio.sleep(delay)
-
-                yield "data: [DONE]\n\n"
-                return
-
-            else:
-                # ========== 情况1：图文处理 ==========
-                print(f"🦁 开始分析图像信息，问题: {self.question} 🦁")
-
-                # 检查用户是否输入提问信息
-                analyse_text_image = await self.llava_get_content(
-                    prompt_setting.rag_image_analysis_template,
-                    image_byte_content,
-                    True
-                )
-
-                if self.messages and len(self.messages) > 0:
-                    conversation_prompt = prompt_setting.image_conversation_template.replace(
-                        '{history}', history_str
-                    ).replace(
-                        '{image_analysis}', analyse_text_image
-                    ).replace(
-                        '{question}', self.question if self.question else "请分析图片内容"
+                        False,  # 不是图文混合
+                        ""  # 无用户提问
                     )
 
-                    enhanced_result = await self.llava_get_content(
-                        conversation_prompt,
-                        image_byte_content,
-                        True
-                    )
-                    analyse_text_image = enhanced_result
-
-                if not self.question or self.question.strip() == "":
-                    print("🎯 没有用户问题，直接返回图片分析结果")
-                    # 将字符串转换为流式返回
-                    import json
-                    chunk_size = 50
-                    total_chunks = (len(analyse_text_image) + chunk_size - 1) // chunk_size
-
-                    for i in range(0, len(analyse_text_image), chunk_size):
-                        chunk = analyse_text_image[i:i + chunk_size]
-                        data = {
-                            "choices": [{"delta": {"content": chunk}}]
-                        }
-                        print(f"📤 发送第 {i // chunk_size + 1}/{total_chunks} 个 chunk，长度: {len(chunk)}")
+                    # 将结果流式返回
+                    chunks = prue_image_chunks(result_content)
+                    for chunk in chunks:
+                        if not chunk.strip():
+                            continue
+                        data = {"choices": [{"delta": {"content": chunk + " "}}]}
                         yield f"data: {json.dumps(data)}\n\n"
-                        await asyncio.sleep(0.01)
+                        await asyncio.sleep(min(0.15, max(0.05, len(chunk) / 300)))
 
                     yield "data: [DONE]\n\n"
+                    return
 
+                # 情况2: 有用户提问 - 使用message数组模式
                 else:
-                    print(f"🎯 有用户问题，进行意图分析和知识库查询")
-                    image_description = analyse_text_image
-                    ocr_text = self.target_file[0].page_content
+                    print("🎯 纯图片有提问，使用message数组模式")
+                    # 获取图片分析结果
+                    image_description = await self.llava_get_content(
+                        prompt_setting.prue_image_analysis_template,
+                        image_byte_content,
+                        False,  # 不是图文混合
+                        user_question  # 传递用户提问
+                    )
+
+                    # 构建system消息
+                    system_message = f"【图片分析结果】\n{image_description}\n\n请根据图片内容回答用户问题。"
+
+                    # 构建完整的消息数组
+                    llm_messages = [{"role": "system", "content": system_message}]
+
+                    # 添加历史消息（前端已限制数量）
+                    if self.messages:
+                        for msg in self.messages:
+                            normalized_msg = {"role": msg.get("role", "user"), "content": msg.get("content", "")}
+                            if normalized_msg["content"].strip():
+                                llm_messages.append(normalized_msg)
+
+                    print(f"🔄 纯图片message模式: 消息总数 {len(llm_messages)}")
+
+                    # 调用流式LLM
+                    async for chunk in stream_llm_response(llm_messages):
+                        yield chunk
+
+                    yield "data: [DONE]\n\n"
+                    return
+
+            else:
+                # ========== 图文处理模式 ==========
+                print(f"🦁 开始分析图文信息")
+
+                # 获取图文分析结果
+                image_description = await self.llava_get_content(
+                    prompt_setting.prue_image_analysis_template,
+                    image_byte_content,
+                    True,  # 图文混合
+                    user_question if user_question else ""  # 传递用户提问（如果存在）
+                )
+
+                # 提取OCR文本
+                ocr_text = self.target_file[0].page_content if self.target_file else ""
+                print(f"🌛 OCR文本长度: {len(ocr_text)}")
+
+                # 构建基础system消息
+                system_message_parts = []
+                if image_description:
+                    system_message_parts.append(f"【图片分析结果】\n{image_description}")
+                if ocr_text:
+                    system_message_parts.append(f"【OCR文本内容】\n{ocr_text}")
+
+                # 如果有用户提问，尝试检索知识库
+                if user_question and user_question.strip():
+                    print(f"🎯 有用户提问，进行意图分析和知识库查询")
+
                     intent_analysis_prompt = prompt_setting.image_intent_prompt.format(
                         image_description=image_description,
                         ocr_text=ocr_text
                     )
                     doc_types = self.analyze_intent_with_llm(intent_analysis_prompt)
-                    print(f"🈶 问题的图文类型结果是: {doc_types}")
+                    print(f"🈶 意图分析结果: {doc_types}")
 
-                    if len(doc_types) > 0:
-                        print(f"🈶 知识库包含问题类型，开始进行知识库查询")
+                    if doc_types and len(doc_types) > 0:
                         relevant_docs = self.vector.query_by_question_vector_with_filter(
-                            question_vector=self.question,
+                            question_vector=user_question,
                             doc_types=doc_types,
-                            top_k=5
+                            top_k=3  # 减少数量，避免上下文过长
                         )
 
-                        if len(relevant_docs) > 0:
-                            print(f"🎯 知识库有相关信息，开始智能融合知识库信息和用户问题")
-                            final_prompt_for_text_model = switch_correct_prompt(
-                                self.question,
-                                doc_types[0],
-                                image_description,
-                                relevant_docs,
-                                ocr_text
-                            )
+                        if relevant_docs and len(relevant_docs) > 0:
+                            # 构建知识库上下文
+                            knowledge_context = build_simple_context(relevant_docs)
+                            system_message_parts.append(f"【相关知识库信息】\n{knowledge_context}")
+                            print(f"🎯 知识库检索到 {len(relevant_docs)} 条相关信息")
 
-                            # 记录开始时间
-                            start_time = time.time()
-                            print(f"🔄 图片文模式:开始流式生成，prompt长度: {len(final_prompt_for_text_model)}")
+                # 如果没有用户提问，直接返回分析结果
+                if not user_question or user_question.strip() == "":
+                    print("🎯 没有用户问题，直接返回图文分析结果")
+                    combined_content = "\n\n".join(system_message_parts)
 
-                            # 调用流式LLM
-                            chunk_count = 0
-                            llm_messages = self.messages.copy() if self.messages else []
-                            llm_messages.append({"role": "user", "content": final_prompt_for_text_model})
-                            async for chunk in stream_llm_response(llm_messages):
-                                if chunk:
-                                    chunk_count += 1
-                                    if chunk_count % 10 == 0:  # 每10个chunk打印一次
-                                        print(f"📤 流式LLM第 {chunk_count} 个 chunk")
-                                    yield chunk
+                    # 将结果流式返回
+                    chunk_size = 50
+                    for i in range(0, len(combined_content), chunk_size):
+                        chunk = combined_content[i:i + chunk_size]
+                        data = {"choices": [{"delta": {"content": chunk}}]}
+                        yield f"data: {json.dumps(data)}\n\n"
+                        await asyncio.sleep(0.01)
 
-                            # 发送结束信号
-                            yield "data: [DONE]\n\n"
-                            end_time = time.time()
-                            print(f"✅ 流式生成完成，共 {chunk_count} 个 chunk，耗时: {end_time - start_time:.2f}秒")
+                    yield "data: [DONE]\n\n"
+                    return
 
-                        else:
-                            print(f"🎯 知识库没有相关信息，直接返回图片分析结果")
-                            # 将字符串转换为流式返回
-                            import json
-                            chunk_size = 50
-                            total_chunks = (len(analyse_text_image) + chunk_size - 1) // chunk_size
+                # 有用户提问，使用完整的message数组模式
+                system_message = "\n\n".join(system_message_parts)
+                system_message += "\n\n请根据图片内容、OCR文本和相关知识库信息回答用户问题。"
 
-                            for i in range(0, len(analyse_text_image), chunk_size):
-                                chunk = analyse_text_image[i:i + chunk_size]
-                                data = {
-                                    "choices": [{"delta": {"content": chunk}}]
-                                }
-                                print(f"📤 发送第 {i // chunk_size + 1}/{total_chunks} 个 chunk，长度: {len(chunk)}")
-                                yield f"data: {json.dumps(data)}\n\n"
-                                await asyncio.sleep(0.01)
+                # 构建完整的消息数组
+                llm_messages = [{"role": "system", "content": system_message}]
 
-                            yield "data: [DONE]\n\n"
+                # 添加历史消息
+                if self.messages:
+                    for msg in self.messages:
+                        normalized_msg = {"role": msg.get("role", "user"), "content": msg.get("content", "")}
+                        if normalized_msg["content"].strip():
+                            llm_messages.append(normalized_msg)
 
-                    else:
-                        print(f"🎯 无匹配文档类型，返回图片分析结果")
-                        # 将字符串转换为流式返回
-                        import json
-                        chunk_size = 50
-                        total_chunks = (len(analyse_text_image) + chunk_size - 1) // chunk_size
+                print(f"🔄 图文message模式: system消息长度 {len(system_message)}, 消息总数 {len(llm_messages)}")
 
-                        for i in range(0, len(analyse_text_image), chunk_size):
-                            chunk = analyse_text_image[i:i + chunk_size]
-                            data = {
-                                "choices": [{"delta": {"content": chunk}}]
-                            }
-                            print(f"📤 发送第 {i // chunk_size + 1}/{total_chunks} 个 chunk，长度: {len(chunk)}")
-                            yield f"data: {json.dumps(data)}\n\n"
-                            await asyncio.sleep(0.01)
+                # 调用流式LLM
+                async for chunk in stream_llm_response(llm_messages):
+                    yield chunk
 
-                        yield "data: [DONE]\n\n"
+                yield "data: [DONE]\n\n"
 
         except Exception as e:
-            import json
             print(f"❌ 图片分析异常: {e}")
             import traceback
             traceback.print_exc()
@@ -440,7 +811,6 @@ class RagService:
 
         # 1. 使用LLM分析意图
         intent_prompt = prompt_setting.intent_analysis_template.replace('{question}', self.question)
-        # doc_types = self.analyze_intent_with_llm(intent_prompt)
         current_doc_types = self.analyze_intent_with_llm(intent_prompt)
 
         # 2. 如果当前意图为空，判断是否使用历史意图
