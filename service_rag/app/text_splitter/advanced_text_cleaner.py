@@ -26,7 +26,7 @@ class AdvancedTextCleaner:
 
         text = clean(text,
                      clean_all=False,
-                     stemming=True,
+                     # stemming=True,
                      extra_spaces=True,
                      )
         lines = text.split('\n')
@@ -40,12 +40,30 @@ class AdvancedTextCleaner:
     def _is_meaningful_line(self, line):
         if len(line) < 2:
             return False
+        line = line.strip()
+        if re.match(r'^[\d\s\-\.:/]+$', line):
+            return True
+
+            # 允许数字+标点符号的组合
+        if re.match(r'^[\d\s\-\.:/,;()]+$', line):
+            return True
 
         has_chinese = bool(re.search(r'[\u4e00-\u9fff]+', line))
         has_english = bool(re.search(r'\b[a-zA-Z]{2,}\b+', line))
+        has_numbers = bool(re.search(r'\d+', line))
 
-        garbage_ratio = len(re.findall(r'[^a-zA-Z0-9\u4e00-\u9fff\s\.,;:()|\-+]+', line)) / len(line)
-        return (has_chinese or has_english) and garbage_ratio <= 0.3
+        if has_numbers and len(line) >= 3:
+            return True
+
+        allowed_chars = r'[a-zA-Z0-9\u4e00-\u9fff\s\-\.:,\/;()、，。！？《》【】「」（）]+'
+        non_allowed = re.findall(f'[^{allowed_chars[1:-1]}]', line)  # 去掉字符集的括号
+
+        if len(line) > 0:
+            garbage_ratio = len(non_allowed) / len(line)
+        else:
+            garbage_ratio = 1.0
+
+        return (has_chinese or has_english) and garbage_ratio <= 0.4
 
     def clean_documents(self, documents: List[Document]) -> List[Document]:
         cleaned_docs = []

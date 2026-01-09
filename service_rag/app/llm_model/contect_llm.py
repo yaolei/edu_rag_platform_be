@@ -19,7 +19,6 @@ async def stream_llm_response(messages: List[Dict[str, str]]):
         "Content-Type": "application/json",
         "Authorization": f"Bearer {setting.TOKEN_URL}"
     }
-    print(f"👌发送的问题组是{messages}")
     try:
         import aiohttp
         async with aiohttp.ClientSession() as session:

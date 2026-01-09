@@ -34,6 +34,8 @@ class RagService:
         self.image_binary_data = None
         self.conversation_id = None
         self.messages = []
+        self.last_doc_types = []  # 保存上次的意图分析结果
+        # self.conversation_topic = None
 
     @classmethod
     async def create(cls, upload_file: List[UploadFile]=None, embedding_type='questions', doc_type="document",
@@ -395,6 +397,42 @@ class RagService:
     def clear_all_documents(self):
         self.vector.clear_collection()
 
+    def _should_use_historical_intent(self):
+        """
+        判断是否应该使用历史意图
+        基于简单规则：问题模糊、简短、且历史意图存在
+        """
+        # 规则1：有可用的历史意图
+        if not self.last_doc_types:
+            return False
+
+        # 规则2：当前问题简短或模糊
+        question = self.question.strip()
+        if len(question) >= 10:
+            # 问题足够明确，应该独立分析
+            return False
+
+        # 规则3：包含延续性关键词
+        continuation_keywords = ["更多", "详细", "还有", "接着", "继续", "More", "Details", "Also", "Next", "Continue"]
+        if any(keyword in question for keyword in continuation_keywords):
+            return True
+
+        # 规则4：问题很短（可能是回应式提问）
+        if len(question) <= 8:
+            return True
+
+        # 规则5：检查对话历史连续性
+        if self.messages and len(self.messages) >= 2:
+            # 获取最近一次助手回答
+            last_assistant_msg = None
+            for msg in reversed(self.messages[:-1]):  # 排除当前消息
+                if msg.get("role") == "assistant":
+                    last_assistant_msg = msg.get("content", "")
+                    break
+
+        return False
+
+
     def question_query_from_vector(self):
         """
         新逻辑：使用LLM分析意图，然后进行过滤查询
@@ -403,9 +441,27 @@ class RagService:
 
         # 1. 使用LLM分析意图
         intent_prompt = prompt_setting.intent_analysis_template.replace('{question}', self.question)
-        doc_types = self.analyze_intent_with_llm(intent_prompt)
+        # doc_types = self.analyze_intent_with_llm(intent_prompt)
+        current_doc_types = self.analyze_intent_with_llm(intent_prompt)
 
-        # 2. 如果有匹配的doc_type，进行过滤查询
+        # 2. 如果当前意图为空，判断是否使用历史意图
+        if not current_doc_types and self._should_use_historical_intent():
+            print(f"🎯 使用历史意图: {self.last_doc_types}")
+            doc_types = self.last_doc_types
+        else:
+            doc_types = current_doc_types
+            if doc_types:
+                self.last_doc_types = doc_types
+                print(f"📝 更新历史意图为: {doc_types}")
+            elif self._should_use_historical_intent():
+                print(f"📝 使用历史意图但不更新（因为当前意图不明确: {doc_types}")
+                doc_types = self.last_doc_types
+            else:
+                print(f"📝 意图不明确，清空历史意图（话题可能已结束）: {doc_types}")
+                self.last_doc_types = []
+                doc_types = []
+
+        # 3. 如果有匹配的doc_type，进行过滤查询
         if doc_types and len(doc_types) > 0:
             print(f"🎯 使用过滤查询 (目标分区: {doc_types})")
 
@@ -414,6 +470,7 @@ class RagService:
                 question_vector=self.question,
                 doc_types=doc_types,
                 top_k=5  # 只需要5个最优结果
+
             )
 
             if results and len(results) > 0:
@@ -432,7 +489,6 @@ class RagService:
 
             if clear_chunks:
                 chunks = self.clear_data(splitter_chunks)
-                print(f"🚀 🚀 🚀  {chunks}")
             else:
                 chunks = splitter_chunks
             return chunks

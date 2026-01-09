@@ -107,7 +107,6 @@ class DocumentLoader:
                                   'image_texts': [image_txt],
                                   'is_pre_image': False,
                                   'plain_text': "\n\n".join(p.page_content for p in pdf_docs) }
-            print(f" 🔥🚀🔥🚀🔥🚀🔥{multimodal_content}🔥🚀🔥🚀🔥🚀🔥")
             return multimodal_content
 
         if self.document_type == "image":
