@@ -1,5 +1,6 @@
 import requests, json
 import time
+import base64
 import asyncio
 from typing import List, Dict
 from service_rag.app.config.config import setting
@@ -7,12 +8,15 @@ from service_rag.app.config.config import setting
 async def stream_llm_response(messages: List[Dict[str, str]]):
     """流式调用LLM - 直接转发SSE响应"""
     url = setting.CHAT_URL_TEMPLATE
+
     payload = {
-        "model": "@cf/meta/llama-3.1-8b-instruct-fast",
+        # "model": "@cf/meta/llama-3.1-8b-instruct-fast",
+        # "model": "@cf/meta/llama-4-scout-17b-16e-instruct",
+        "model": "@cf/ibm-granite/granite-4.0-h-micro",
         "messages": messages,
         "max_tokens": 2000,
         "temperature": 0.7,
-        "stream": True
+        "stream": True,
     }
     print(f"✅ 发送的数据是 {messages}")
     headers = {
@@ -32,11 +36,10 @@ async def stream_llm_response(messages: List[Dict[str, str]]):
                     return
 
                 print(f"✅ LLM API连接成功，开始接收流式数据")
-
                 # 重要：直接读取并转发原始SSE数据
                 async for data in response.content.iter_any():
                     if data:
-                        chunk = data.decode('utf-8')
+                        chunk = data.decode('utf-8', errors='ignore')
                         yield chunk
                 print(f"✅ LLM流式数据接收完成")
 
@@ -94,53 +97,24 @@ def connect_text_llm(question:str):
         }
 
 
-async def analyze_with_image(image_bytes: bytes, question: str, messages: List[Dict[str, str]] = None):
 
-    try:
-        original_size = len(image_bytes)
-        print(f"🖼️ [图片模型] 接收到图片大小: {original_size / 1024:.1f}KB ({original_size}字节)")
-        image_array = list(image_bytes)
-        if len(image_array) == 0:
-            return {
-                "role": "assistant",
-                "content": "图片处理失败：转换后的数据为空。"
-            }
-    except Exception as e:
-        print(f"图片数据处理失败: {str(e)}")
+async def analyze_with_image(image_bytes: bytes, question: str):
+
+    original_size = len(image_bytes)
+    print(f"🖼️ [图片模型] 接收到图片大小: {original_size / 1024:.1f}KB ({original_size}字节)")
+    image_array = list(image_bytes)
+    if len(image_array) == 0:
         return {
             "role": "assistant",
-            "content": f"图片处理失败: {str(e)}"
-        }
+            "content": "图片处理失败：转换后的数据为空。"
+    }
 
-    final_prompt = question
-    if not final_prompt and messages:
-        # 从messages中提取最后一条用户消息
-        for msg in reversed(messages):
-            if msg.get("role") == "user":
-                final_prompt = msg.get("content", "").strip()
-                break
-
-    if not final_prompt:
-        final_prompt = "请分析这张图片"
-
-    # 如果有历史消息，添加到提示词中
-    if messages and len(messages) > 1:
-        # 构建历史消息文本
-        history_text = "【对话历史】\n"
-        for msg in messages[:-1]:  # 不包含最后一条消息
-            role = "用户" if msg.get("role") == "user" else "助手"
-            content = msg.get("content", "")
-            history_text += f"{role}: {content}\n"
-
-        final_prompt = f"{history_text}\n【当前任务】\n{final_prompt}"
-
-    # 2. 发送请求到API
-    url = setting.CHAT_URL_IMAGE_TEMPLATE
+    url = setting.CHAT_URL_UFROM_TEMPLATE
 
     input_payload = {
         "image": image_array,
-        "prompt": final_prompt,
-        "max_tokens": 512
+        "prompt": question,
+        "max_tokens": 1024
     }
 
     headers = {
@@ -169,7 +143,6 @@ async def analyze_with_image(image_bytes: bytes, question: str, messages: List[D
             else:
                 final_content = str(result).strip()
         else:
-            # 如果格式不符合预期，记录日志并返回错误
             print(f"⚠️  [图片模型] 意外的响应格式: {body}")
             final_content = "图片分析失败：API返回了意外的格式"
 
