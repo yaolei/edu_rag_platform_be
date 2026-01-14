@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, File, UploadFile,Form, Request
+from fastapi import APIRouter, Depends, File, UploadFile,Form
 from fastapi import HTTPException
 from conect_databse.database import get_db
 from sqlalchemy.orm import Session
@@ -18,17 +18,17 @@ def test_api():
 @router.post('/chat_with_knowledge_stream')
 async def chat_stream(
         conversation_id: Optional[str] = Form(None),
-        messages_json: str = Form(...)  # 改为必需参数
+        intent_type: str = Form(...),
+        messages_json: str = Form(...)
 ):
     try:
         messages = json.loads(messages_json)
         if not isinstance(messages, list):
             raise HTTPException(status_code=400, detail="messages_json必须是数组")
 
-        print(f"🎯 解析到 {len(messages)} 条消息")
-
         return await svc.chat_with_knowledge_api_stream(
             conversation_id=conversation_id,
+            intent_type=intent_type,
             messages=messages
         )
     except json.JSONDecodeError:
@@ -44,10 +44,10 @@ async def chat_stream(
 async def chat_by_file_knowledge_stream(
         files: List[UploadFile] = File([]),
         conversation_id: Optional[str] = Form(None),
+        intent_type: str = Form(...),
         messages_json: Optional[str] = Form(None)
 ):
     try:
-        # 解析 messages_json
         messages = []
         if messages_json:
             try:
@@ -57,11 +57,11 @@ async def chat_by_file_knowledge_stream(
                 print(f"❌ OCR JSON解析失败: {e}")
                 messages = []
 
-        # 直接传递所有参数
         return await svc.chat_with_knowledge_file_stream(
             files=files,
             messages=messages,
-            conversation_id=conversation_id
+            conversation_id=conversation_id,
+            intent_type=intent_type,
         )
     except Exception as e:
         print(f"❌ OCR接口异常: {e}")
@@ -84,17 +84,6 @@ async def create_knowledge_item(
         "doc_type":document_type,
     }
     return await svc.create_knowledge_item(db, knowledge_data, [file])
-
-
-# @router.post('/chat_by_files')
-# async def chat_by_file_knowledge( questions: Optional[str] = Form(None),   # 普通文本
-#                                   files: List[UploadFile] = File([])):
-#
-#     res = await svc.chat_with_knowledge_by_files(question=questions, files=files)
-#     return {
-#         'status': 200,
-#         'content' : res
-#     }
 
 @router.get('/knowledge_items', response_model=List[KnowledgeItems])
 async def get_knowledge_items(db:Session = Depends(get_db)):

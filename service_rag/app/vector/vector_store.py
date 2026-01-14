@@ -53,18 +53,14 @@ class VectorStore:
         return uuid
 
     def query_by_question_vector_with_filter(self, question_vector, doc_types=None, top_k=5):
-        if not doc_types:
-            return self.query_by_question_vector(question_vector)
+        # if doc_types =='chat':
+        #     return self.query_by_question_vector(question_vector)
 
         try:
             collection = self.vectors._collection
             query_embedding = self.embedding_function.embed_query(question_vector)
 
-            # 构建过滤条件
-            if len(doc_types) == 1:
-                where_filter = {"doc_type": doc_types[0]}
-            else:
-                where_filter = {"doc_type": {"$in": doc_types}}
+            where_filter = {"doc_type": doc_types}
 
             # 执行查询
             results = collection.query(

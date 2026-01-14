@@ -6,7 +6,6 @@ import json
 from pathlib import Path
 from service_rag.app.embedding.embedding_data import EmbeddingData
 from service_rag.app.prompt.prompt import prompt_setting
-from langchain_core.prompts import PromptTemplate
 from langchain_core.documents import Document
 from service_rag.app.document_operation.document_loader import DocumentLoader
 from service_rag.app.text_splitter.text_split import TextSplitter
@@ -17,8 +16,6 @@ from service_rag.app.service.gen_util import build_simple_context, prue_image_ch
 
 class RagService:
     def __init__(self):
-        self.prompt = PromptTemplate(input_variables=['context', 'question'],
-                                     template=prompt_setting.rag_template)
         self.embedding_type = None
         self.upload_file = None
         self.file_name = None
@@ -34,27 +31,30 @@ class RagService:
         self.image_binary_data = None
         self.conversation_id = None
         self.messages = []
-        self.last_doc_types = []  # 保存上次的意图分析结果
-        # self.conversation_topic = None
+        self.last_doc_types = []
+        self.intent_type = None
 
     @classmethod
     async def create(cls, upload_file: List[UploadFile]=None, embedding_type='questions', doc_type="document",
                                                              conversation_id: Optional[str] = None,
-                                                             messages: Optional[List[Dict]] = None, **kwargs):
+                                                             messages: Optional[List[Dict]] = None,
+                                                             intent_type="chat", **kwargs):
         instance = cls()
         await instance.initialize(upload_file, embedding_type, doc_type, conversation_id=conversation_id,
                                                                                       messages=messages,
+                                                                                      intent_type=intent_type,
                                                                                       **kwargs)
         return instance
 
     async def initialize(self, upload_file: List[UploadFile]=None, embedding_type='questions', doc_type="document",
                          conversation_id: Optional[str] = None,
-                         messages: Optional[List[Dict]] = None, **kwargs):
+                         messages: Optional[List[Dict]] = None,
+                         intent_type="chat", **kwargs):
         self.embedding_type = embedding_type
 
         self.upload_file = upload_file
         self.doc_type = doc_type
-
+        self.intent_type=intent_type
         self.conversation_id = conversation_id  # 新增
         self.messages = messages or []
         self.question = ""
@@ -72,7 +72,7 @@ class RagService:
         if self.messages:
             print(f"📚 接收到 {len(self.messages)} 条历史消息")
 
-        if not upload_file:  # 无文件
+        if not upload_file:
             pass
         elif len(upload_file) == 1:
             self.if_files = False
@@ -158,8 +158,6 @@ class RagService:
                     if msg.get("role") == "user":
                         user_question = msg.get("content", "").strip()
                         break
-
-            print(f"🌛 用户问题: '{user_question}'")
 
             # 纯图片
             is_pure_image = not self.target_file
@@ -247,19 +245,15 @@ class RagService:
                 # 如果有用户提问，尝试检索知识库
                 if user_question and user_question.strip():
                     print(f"🎯 有用户提问，进行意图分析和知识库查询")
+                    ''''
+                         如果是chat模式，不涉及知识库查询
+                    '''
 
-                    intent_analysis_prompt = prompt_setting.image_intent_prompt.format(
-                        image_description=image_description,
-                        ocr_text=ocr_text
-                    )
-                    doc_types = self.analyze_intent_with_llm(intent_analysis_prompt)
-                    print(f"🈶 意图分析结果: {doc_types}")
-
-                    if doc_types and len(doc_types) > 0:
+                    if self.intent_type != 'chat':
                         relevant_docs = self.vector.query_by_question_vector_with_filter(
                             question_vector=user_question,
-                            doc_types=doc_types,
-                            top_k=3  # 减少数量，避免上下文过长
+                            doc_types=self.intent_type,
+                            top_k=3
                         )
 
                         if relevant_docs and len(relevant_docs) > 0:
@@ -351,88 +345,21 @@ class RagService:
     def clear_all_documents(self):
         self.vector.clear_collection()
 
-    def _should_use_historical_intent(self):
-        """
-        判断是否应该使用历史意图
-        基于简单规则：问题模糊、简短、且历史意图存在
-        """
-        # 规则1：有可用的历史意图
-        if not self.last_doc_types:
-            return False
-
-        # 规则2：当前问题简短或模糊
-        question = self.question.strip()
-        if len(question) >= 10:
-            # 问题足够明确，应该独立分析
-            return False
-
-        # 规则3：包含延续性关键词
-        continuation_keywords = ["更多", "详细", "还有", "接着", "继续", "More", "Details", "Also", "Next", "Continue"]
-        if any(keyword in question for keyword in continuation_keywords):
-            return True
-
-        # 规则4：问题很短（可能是回应式提问）
-        if len(question) <= 8:
-            return True
-
-        # 规则5：检查对话历史连续性
-        if self.messages and len(self.messages) >= 2:
-            # 获取最近一次助手回答
-            last_assistant_msg = None
-            for msg in reversed(self.messages[:-1]):  # 排除当前消息
-                if msg.get("role") == "assistant":
-                    last_assistant_msg = msg.get("content", "")
-                    break
-
-        return False
-
-
     def question_query_from_vector(self):
         """
-        新逻辑：使用LLM分析意图，然后进行过滤查询
+        逻辑：直接基于用户的意图分析，后期可融入智能分析，但是复杂性和分析质量问题有困难
+        chat模式不查询知识库，不提供知识库内部信息
         """
-        print(f"🔍 执行向量查询，问题: '{self.question}'")
-
-        # 1. 使用LLM分析意图
-        intent_prompt = prompt_setting.intent_analysis_template.replace('{question}', self.question)
-        current_doc_types = self.analyze_intent_with_llm(intent_prompt)
-
-        # 2. 如果当前意图为空，判断是否使用历史意图
-        if not current_doc_types and self._should_use_historical_intent():
-            print(f"🎯 使用历史意图: {self.last_doc_types}")
-            doc_types = self.last_doc_types
-        else:
-            doc_types = current_doc_types
-            if doc_types:
-                self.last_doc_types = doc_types
-                print(f"📝 更新历史意图为: {doc_types}")
-            elif self._should_use_historical_intent():
-                print(f"📝 使用历史意图但不更新（因为当前意图不明确: {doc_types}")
-                doc_types = self.last_doc_types
-            else:
-                print(f"📝 意图不明确，清空历史意图（话题可能已结束）: {doc_types}")
-                self.last_doc_types = []
-                doc_types = []
-
-        # 3. 如果有匹配的doc_type，进行过滤查询
-        if doc_types and len(doc_types) > 0:
-            print(f"🎯 使用过滤查询 (目标分区: {doc_types})")
-
-            # 使用过滤查询
-            results = self.vector.query_by_question_vector_with_filter(
+        results = self.vector.query_by_question_vector_with_filter(
                 question_vector=self.question,
-                doc_types=doc_types,
+                doc_types=self.intent_type,
                 top_k=5  # 只需要5个最优结果
-
             )
 
-            if results and len(results) > 0:
-                return results
-            else:
-                print(f"⚠️ 过滤查询无结果，知识库中没有相关类型的内容")
-                return []
+        if results and len(results) > 0:
+            return results
         else:
-            print(f"🎯 无匹配的文档类型，知识库没有相关信息")
+            print(f"⚠️ 过滤查询无结果，知识库中没有相关类型的内容")
             return []
 
     def get_chunk_doc(self, target_file, clear_chunks=False):
@@ -517,9 +444,10 @@ class RagService:
                 if llm_messages[i].get("role") == "user":
                     # 修改当前用户问题，明确引用图片描述
                     original_content = llm_messages[i]["content"]
-                    enhanced_content = f"""{original_content}
+                    enhanced_content = f"""
+                            {original_content}
+                        （提示：根据之前的对话，图片描述为：{image_reference_text[:200]}...请基于这个图片描述回答。）"""
 
-                （提示：根据之前的对话，图片描述为：{image_reference_text[:200]}...请基于这个图片描述回答。）"""
                     llm_messages[i]["content"] = enhanced_content
                     break
 

@@ -11,8 +11,8 @@ async def stream_llm_response(messages: List[Dict[str, str]]):
 
     payload = {
         # "model": "@cf/meta/llama-3.1-8b-instruct-fast",
-        # "model": "@cf/meta/llama-4-scout-17b-16e-instruct",
-        "model": "@cf/ibm-granite/granite-4.0-h-micro",
+        "model": "@cf/meta/llama-4-scout-17b-16e-instruct",
+        # "model": "@cf/ibm-granite/granite-4.0-h-micro",
         "messages": messages,
         "max_tokens": 2000,
         "temperature": 0.7,

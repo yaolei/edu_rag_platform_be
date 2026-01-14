@@ -2,10 +2,10 @@ import json
 from sqlalchemy.orm import Session
 from fastapi import UploadFile
 from fastapi.responses import StreamingResponse, JSONResponse
-from service_rag.app.schemas.item import KnowledgeItemCreate, KnowledgeItems, ChatRequest
+from service_rag.app.schemas.item import KnowledgeItemCreate, KnowledgeItems
 from service_rag.app.repositories import item as repo
 from service_rag.app.run_rag import RagService
-from typing import Dict, List
+from typing import List
 
 
 async def create_knowledge_item(db:Session, obj, file):
@@ -77,28 +77,21 @@ async def delete_knowledge_item_by_ids(ids, db:Session):
             "message": str(e),
         }
 
-# async def chat_with_knowledge_by_files(files, question):
-#     try:
-#         rag = await RagService.create(embedding_type="questions", upload_file=files, question= question)
-#         image_result = await rag.analyse_image_information()
-#         return image_result
-#     except Exception as e:
-#         print(f"❌ 处理文件时出错: {str(e)}")
-#         raise
-
 async def dev_env_test_api():
     rag = await RagService.create(embedding_type="questions", question='')
     rag.dev_env_test_api()
 
 
 async def chat_with_knowledge_file_stream( files: List[UploadFile],
-                                          messages=None, conversation_id: str = None):
+                                          messages=None, conversation_id: str = None,
+                                          intent_type='chat'):
     try:
         rag = await RagService.create(
             embedding_type="questions",
             upload_file=files,
             conversation_id=conversation_id,
-            messages=messages  # 使用 messages 参数
+            intent_type=intent_type,
+            messages=messages
         )
 
         print(f"🎯 开始处理文件流式响应，文件数量: {len(files)}")
@@ -142,17 +135,23 @@ async def chat_with_knowledge_file_stream( files: List[UploadFile],
             content={"error": str(e)}
         )
 
-async def chat_with_knowledge_api_stream(conversation_id=None, messages=None):
+async def chat_with_knowledge_api_stream(conversation_id=None, messages=None, intent_type='chat'):
     """
-    API对话接口 - 使用 messages 参数，不需要单独的 questions 参数
+    API对话接口 - 使用 messages 参数
     """
     try:
         rag = await RagService.create(
             conversation_id=conversation_id,
             messages=messages,
+            intent_type=intent_type,
             embedding_type="questions"
         )
-        res_doc = rag.question_query_from_vector()
+
+        if intent_type == 'chat':
+            res_doc=[]
+        else:
+            res_doc = rag.question_query_from_vector()
+
         async def generate():
             try:
                 async for chunk in rag.stream_context_from_docs(res_doc):

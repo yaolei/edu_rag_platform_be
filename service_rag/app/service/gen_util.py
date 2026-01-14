@@ -4,7 +4,7 @@ import json
 import asyncio
 def switch_correct_prompt(question, doc_type, image_description, relevant_docs, ocr_text):
     if doc_type == "resume":
-        final_prompt_for_text_model = prompt_setting.rag_image_qa_template.format(
+        final_prompt_for_text_model = prompt_setting.rag_image_resume_template.format(
             image_description=image_description,
             knowledge_context=relevant_docs,
             ocr_text=ocr_text,
