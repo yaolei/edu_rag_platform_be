@@ -17,12 +17,16 @@ def switch_correct_prompt(question, doc_type, image_description, relevant_docs, 
             ocr_text=ocr_text,
             question=question,
         )
-    else:
-        # 文档类型
+    elif doc_type == "document":
         final_prompt_for_text_model = prompt_setting.general_doc_rag_qa_template.format(
             image_description=image_description,
             knowledge_context=relevant_docs,
             ocr_text=ocr_text,
+            question=question,
+        )
+    else:
+        # 文档类型
+        final_prompt_for_text_model = prompt_setting.normal_chat_template.format(
             question=question,
         )
 
