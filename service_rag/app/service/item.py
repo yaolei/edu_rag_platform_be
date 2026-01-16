@@ -146,8 +146,10 @@ async def chat_with_knowledge_api_stream(conversation_id=None, messages=None, in
             intent_type=intent_type,
             embedding_type="questions"
         )
-
-        if intent_type == 'chat':
+        '''
+           chat和image模式不查询知识库，不提供知识库内部信息
+        '''
+        if intent_type == 'chat' or intent_type == 'image':
             res_doc=[]
         else:
             res_doc = rag.question_query_from_vector()

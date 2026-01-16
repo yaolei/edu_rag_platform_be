@@ -11,8 +11,8 @@ async def stream_llm_response(messages: List[Dict[str, str]]):
 
     payload = {
         # "model": "@cf/meta/llama-3.1-8b-instruct-fast",
-        "model": "@cf/meta/llama-4-scout-17b-16e-instruct",
-        # "model": "@cf/ibm-granite/granite-4.0-h-micro",
+        # "model": "@cf/meta/llama-4-scout-17b-16e-instruct",
+        "model": "@cf/ibm-granite/granite-4.0-h-micro",
         "messages": messages,
         "max_tokens": 2000,
         "temperature": 0.7,
@@ -98,7 +98,7 @@ def connect_text_llm(question:str):
 
 
 
-async def analyze_with_image(image_bytes: bytes, question: str):
+async def analyze_with_image(image_bytes: bytes, question: str, is_text_image=False ):
 
     original_size = len(image_bytes)
     print(f"🖼️ [图片模型] 接收到图片大小: {original_size / 1024:.1f}KB ({original_size}字节)")
@@ -109,7 +109,9 @@ async def analyze_with_image(image_bytes: bytes, question: str):
             "content": "图片处理失败：转换后的数据为空。"
     }
 
-    url = setting.CHAT_URL_UFROM_TEMPLATE
+    url = setting.CHAT_URL_IMAGE_TEMPLATE
+    if not is_text_image:
+         url = setting.CHAT_URL_UFROM_TEMPLATE
 
     input_payload = {
         "image": image_array,

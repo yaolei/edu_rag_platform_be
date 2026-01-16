@@ -31,7 +31,7 @@ def switch_correct_prompt(question, doc_type, image_description, relevant_docs, 
 
 def build_simple_context(documents):
         context_parts = []
-        for i, doc in enumerate(documents[:5]):  # 最多5个
+        for i, doc in enumerate(documents):  # 最多5个
             content = ""
 
             if isinstance(doc, dict):
