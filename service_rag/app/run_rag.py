@@ -159,7 +159,6 @@ class RagService:
                         continue
                     data = {"choices": [{"delta": {"content": chunk + " "}}]}
                     yield f"data: {json.dumps(data)}\n\n"
-                    await asyncio.sleep(min(0.15, max(0.05, len(chunk) / 300)))
 
                 yield "data: [DONE]\n\n"
                 return
@@ -255,7 +254,6 @@ class RagService:
                             chunk_data = {"choices": [{"delta": {"content": chunk + " "}}]}
 
                         yield f"data: {json.dumps(chunk_data)}\n\n"
-                        await asyncio.sleep(min(0.15, max(0.05, len(chunk) / 300)))
 
                 yield "data: [DONE]\n\n"
                 return
@@ -415,7 +413,6 @@ class RagService:
                 if chunk:
                     yield chunk
 
-            yield "data: [DONE]\n\n"
             end_time = time.time()
             print(f"✅ 流式生成完成，耗时: {end_time - start_time:.2f}秒")
 
