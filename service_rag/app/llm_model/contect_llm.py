@@ -41,6 +41,9 @@ async def stream_llm_response(messages: List[Dict[str, str]]):
                     if data:
                         chunk = data.decode('utf-8', errors='ignore')
                         yield chunk
+
+                        import sys
+                        sys.stdout.flush()
                 print(f"✅ LLM流式数据接收完成")
 
     except asyncio.TimeoutError:

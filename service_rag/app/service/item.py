@@ -97,6 +97,7 @@ async def chat_with_knowledge_file_stream( files: List[UploadFile],
         print(f"🎯 开始处理文件流式响应，文件数量: {len(files)}")
 
         async def generate():
+            import asyncio
             try:
                 print("🔄 开始生成流式响应...")
                 chunk_count = 0
@@ -108,6 +109,7 @@ async def chat_with_knowledge_file_stream( files: List[UploadFile],
 
                     if chunk:
                         yield chunk
+                        await asyncio.sleep(0)
 
                 print(f"✅ 流式响应生成完成，共 {chunk_count} 个 chunk")
             except Exception as e:
@@ -155,10 +157,12 @@ async def chat_with_knowledge_api_stream(conversation_id=None, messages=None, in
             res_doc = rag.question_query_from_vector()
 
         async def generate():
+            import asyncio
             try:
                 async for chunk in rag.stream_context_from_docs(res_doc):
                     if chunk:
                         yield chunk
+                        await asyncio.sleep(0)
             except Exception as e:
                 import json
                 error_msg = json.dumps({"error": f"生成流时出错: {str(e)}"})
